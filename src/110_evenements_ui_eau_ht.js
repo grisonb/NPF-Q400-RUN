@@ -124,7 +124,9 @@ function setupEventListeners() {
 
     if (roadOverlayButton) {
         refreshRoadOverlayButtonState();
-        roadOverlayButton.addEventListener('click', () => {
+        roadOverlayButton.addEventListener('click', (event) => {
+            /* RUN v1.9 — la pastille des cheminements (src/155) ne touche pas au Calque Routier. */
+            if (typeof isNpfCheminementsToggleTarget === 'function' && isNpfCheminementsToggleTarget(event)) return;
             toggleRoadOverlayLayer();
         });
     }

@@ -31,6 +31,8 @@ function updateMapBingoDisplay() {
 }
 
 function displayCommuneDetails(commune, shouldFitBounds = true) {
+    /* RUN v1.9 — nouveau feu : retour à la ligne droite (src/155). */
+    if (typeof resetNpfCheminementPourFeu === 'function') resetNpfCheminementPourFeu(commune);
     saveFireHistory(commune);
     routesLayer.clearLayers();
     lftwRouteLayer.clearLayers();
@@ -124,6 +126,9 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
         /* v17.86 — le plus proche (liste triée par distance) garde sa bordure verte même si un autre est choisi. */
         drawRoute([lat, lon], [ap.lat, ap.lon], { oaci: ap.oaci, isNearest: index === 0 });
     });
+    /* RUN v1.9 — cheminements vers les cirques dont la fin est à moins de 5 NM du feu (src/155) ; tracés de fond cachés. */
+    if (typeof drawNpfCheminementsVersFeu === 'function') allPoints.push(...drawNpfCheminementsVersFeu(lat, lon, routesLayer));
+    if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
 
     drawWaterPointMarkersForCommune(commune);
 
@@ -166,6 +171,8 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
 function selectPelicanOaciFromRoute(oaci) {
     const normalizedOaci = String(oaci || '').trim().toUpperCase();
     if (!normalizedOaci) return;
+    /* RUN v1.9 — toucher la ligne droite : retour à elle (plus de cheminement choisi). */
+    if (typeof npfCheminementSelectionId !== 'undefined') npfCheminementSelectionId = null;
     selectedPelicanOACI = normalizedOaci;
     displayCommuneDetails(currentCommune, false);
 }
@@ -249,7 +256,9 @@ function drawRoute(startLatLng, endLatLng, options = {}) {
         dashArray = '5, 10';
         layer = lftwRouteLayer;
     } else if (oaci) {
-        const isSelected = selectedPelicanOACI === oaci;
+        /* RUN v1.9 — un cheminement choisi (src/155) : la ligne droite reste affichée mais n'est plus la route choisie. */
+        const isSelected = selectedPelicanOACI === oaci
+            && !(typeof getNpfCheminementSelectionne === 'function' && getNpfCheminementSelectionne());
         /* v15.44 — routes pélicandromes : couleur vive + bord blanc, 100 % opaque. */
         color = isSelected ? '#39ff14' : '#00a8ff';
         const tooltipClass = isSelected
