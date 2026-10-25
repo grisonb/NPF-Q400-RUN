@@ -426,9 +426,8 @@ const NPF_PELIC_NOTAMS_KEYWORDS_TO_FILTER = Object.freeze([
 const NPF_NOTAMS_COVERAGE_LOCAL_KEY = 'npfNotamsCoverageV1';
 
 function getNpfNotamsFallbackCoverage() {
-    return pelicanAirports
-        .map(airport => String(airport?.oaci || '').trim().toUpperCase())
-        .filter(Boolean);
+    /* RUN v1.7 — FMEP et FMEE (fichier NOTAM de la RUN). */
+    return [...NPF_RUN_NOTAMS_TERRAINS];
 }
 
 function getNpfNotamsCoverageFromPayload(payload) {
@@ -811,31 +810,17 @@ async function writeNpfBfgNotamsSharedPayload(payload) {
  * sinon mot de passe de session, comme FdS / GAAR). NAS éteint 23h50-06h00 :
  * aucun appel. Suivi d'une recherche : 5 min au plus, seulement pendant elle.
  */
-const NPF_SOFIA_NOTAMS_ALL_URL = 'https://grisonb.synology.me/briefing-api/get-sofia-notams-all.php';
+/* RUN v1.7 — NOTAM de FMEP et FMEE : fichier notams-run.json écrit sur le VPS par le service SÉPARÉ npf-run-sofia-notams
+ * (recherches SOFIA à 05:30, 06:30, 08:00, 10:00, 13:00 et 16:00 heure de La Réunion ; vps/npf-run-sofia-notams/). L'app
+ * le LIT seulement (aucune recherche demandée, ni au NAS ni au VPS) ; même schéma que le fichier complet de la TEST
+ * (bfg-sofia-notams-all-v1), même affichage. Plus aucun appel au NAS pour les NOTAM, plus de créneau « NAS éteint ». */
+const NPF_SOFIA_NOTAMS_ALL_URL = NPF_RUN_NOTAMS_URL;
 const NPF_SOFIA_NOTAMS_ALL_SCHEMA = 'bfg-sofia-notams-all-v1';
 const NPF_SOFIA_NOTAMS_FILE_TIMEOUT_MS = 30000;
-const NPF_SOFIA_NOTAMS_POLL_MS = 3000;                  // suivi avec session (réponse légère)
-const NPF_SOFIA_NOTAMS_REREAD_MS = 60000;               // suivi sans session : relecture du fichier
-const NPF_SOFIA_NOTAMS_FOLLOW_MAX_MS = 5 * 60 * 1000;   // suivi : 5 min au plus
 const NPF_SOFIA_NOTAMS_RECHECK_MS = 10 * 60 * 1000;     // copie du jour : mise à jour légère au plus toutes les 10 min
-const NPF_SOFIA_NOTAMS_SEARCH_STEPS = 24;
 const NPF_SOFIA_NOTAMS_LAST_CHECK_KEY = 'npfSofiaNotamsLastCheckV1';
 const NPF_SOFIA_NOTAMS_ALERT_DAY_KEY = 'npfSofiaNotamsAlertDayV1';
 let npfSofiaNotamsDailyPromise = null;
-
-function isNpfNasOffHours(now = new Date()) {
-    /* RUN — le NAS s'éteint de 23h50 à 06h00 à l'HEURE DE PARIS (02h50 à 09h00 à La Réunion en hiver) :
-     * ce calcul reste à l'heure de Paris (formatNpfNotamsParisDate est passé à l'heure de La Réunion). */
-    let parts = null;
-    try {
-        const date = now instanceof Date ? now : new Date(now);
-        parts = Object.fromEntries(new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-            .formatToParts(date).map(part => [part.type, part.value]));
-    } catch (_) { parts = null; }
-    if (!parts) return false;
-    const hm = (Number(parts.hour) || 0) * 100 + (Number(parts.minute) || 0);
-    return hm >= 2350 || hm < 600;
-}
 
 function isNpfSofiaNotamsPayload(payload) {
     return Boolean(payload && payload.version === 'bfgNpfNotamsV1' && payload.sourceKind === 'SOFIA');
@@ -883,7 +868,7 @@ function buildNpfNotamsPayloadFromSofiaAll(data) {
         : 'NOTAM SOFIA';
     return {
         version: 'bfgNpfNotamsV1',
-        source: 'NAS',
+        source: 'VPS',
         sourceKind: 'SOFIA',
         publishedAt: generatedAt,
         generatedAt,
@@ -898,27 +883,28 @@ function buildNpfNotamsPayloadFromSofiaAll(data) {
     };
 }
 
-/* Lecture du fichier complet (public). Renvoie { data, search } ; data = null
- * si le NAS n'a encore aucun fichier complet. Erreur réseau ou fichier illisible : exception. */
+/* RUN v1.7 — lecture du fichier NOTAM de la RUN sur le VPS (fichier statique). Renvoie { data, search: null } ;
+ * data = null si le fichier n'existe pas encore (404). Erreur réseau ou fichier illisible : exception. */
 async function fetchNpfSofiaNotamsAllFile(timeoutMs = NPF_SOFIA_NOTAMS_FILE_TIMEOUT_MS) {
-    const response = await fetchBriefingDocsNas(
-        `${NPF_SOFIA_NOTAMS_ALL_URL}?t=${Date.now()}`,
-        { method: 'GET', headers: { 'Accept': 'application/json' } },
-        timeoutMs
-    );
-    const body = await response.json().catch(() => null);
-    if (!body || typeof body !== 'object') throw new Error(`Réponse inattendue du NAS (${response.status}).`);
-    const search = body.search && typeof body.search === 'object' ? body.search : null;
-    if (body.ok !== true) {
-        if (body.error === 'absent') return { data: null, search };
-        throw new Error(body.message || body.error || `Fichier NOTAM SOFIA illisible (${response.status}).`);
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let response;
+    try {
+        response = await fetch(`${NPF_SOFIA_NOTAMS_ALL_URL}?t=${Date.now()}`, {
+            method: 'GET', cache: 'no-store', credentials: 'omit', headers: { 'Accept': 'application/json' },
+            ...(controller ? { signal: controller.signal } : {})
+        });
+    } finally {
+        if (timer) clearTimeout(timer);
     }
-    const data = body.data;
+    if (response.status === 404) return { data: null, search: null };
+    if (!response.ok) throw new Error(`Fichier NOTAM du serveur indisponible (${response.status}).`);
+    const data = await response.json().catch(() => null);
     if (!data || data.schema !== NPF_SOFIA_NOTAMS_ALL_SCHEMA || !Array.isArray(data.airports)
         || !Number.isFinite(Date.parse(String(data.generatedAt || '')))) {
         throw new Error('Fichier NOTAM SOFIA illisible.');
     }
-    return { data, search };
+    return { data, search: null };
 }
 
 /* Enregistre le fichier sur cet iPad s'il est plus récent que la copie locale
@@ -956,7 +942,7 @@ async function fetchAndStoreNpfSofiaNotams(timeoutMs) {
  * v17.59 — lit désormais le fichier SOFIA complet ; ne lance aucune recherche. */
 async function syncNpfBfgNotamsFromNas(options = {}) {
     if (npfBfgNotamsSyncPromise) return npfBfgNotamsSyncPromise;
-    if (!navigator.onLine || isNpfNasOffHours()) return false;
+    if (!navigator.onLine) return false;
 
     npfBfgNotamsSyncPromise = (async () => {
         const result = await fetchAndStoreNpfSofiaNotams(Number(options.timeoutMs) || NPF_SOFIA_NOTAMS_FILE_TIMEOUT_MS);
@@ -1344,7 +1330,7 @@ async function openNpfPelicNotams(oaci) {
         if (source) source.textContent = 'NOTAM SOFIA';
         if (status) {
             status.textContent = navigator.onLine
-                ? 'Aucun NOTAM SOFIA sur cet iPad ni sur le NAS. Utiliser « Rafraîchir les NOTAM » (bouton Cartes).'
+                ? 'Aucun NOTAM SOFIA sur cet iPad ni sur le serveur. Utiliser « Relire les NOTAM » (bouton Cartes).'
                 : 'Aucun NOTAM SOFIA sur cet iPad (hors ligne).';
             status.classList.add('pelic-notams-modal-status-warning');
         }
@@ -1522,8 +1508,9 @@ async function displayNpfNotamsLocalStatus() {
     const source = String(payload?.notamsAutoPdfStatus?.timestampText || '').trim() || 'NOTAM';
     const staleText = getNpfNotamsStaleWarningText(payload);
     const coverageCount = getNpfNotamsCoverageFromPayload(payload).length;
+    const derniere = getNpfRunNotamsDerniereRechercheTexte(payload);
     setNpfNotamsRefreshStatus(
-        `Copie locale : ${source} — ${coverageCount} terrain(s) couvert(s).${staleText ? ` ${staleText}.` : ''}`,
+        `Copie locale : ${derniere || source} — ${coverageCount} terrain(s) couvert(s).${staleText ? ` ${staleText}.` : ''}`,
         { notamsIso: getNpfNotamsSourceIso(payload) }
     );
 }
@@ -1578,89 +1565,8 @@ function npfConfirmInApp(message) {
     });
 }
 
-/* Lancement (ou rejoint) d'une recherche commune. Renvoie la réponse du NAS,
- * { unauthorized: true } sans session valide ; erreur : exception. */
-async function requestNpfSofiaNotamsSearch(session, mode) {
-    const response = await fetchBriefingDocsNas(
-        `${NPF_BRIEFING_DOCS_API_URL}?action=sofia-notams-request&t=${Date.now()}`,
-        {
-            method: 'POST',
-            headers: { ...briefingDocsAuthHeaders(session), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: mode === 'first-connection' ? 'first-connection' : 'manual' })
-        },
-        NPF_NOTAMS_API_TIMEOUT_MS
-    );
-    if (response.status === 401) return { unauthorized: true };
-    const payload = await response.json().catch(() => null);
-    if (!payload || payload.ok !== true) {
-        throw new Error(payload?.message || payload?.error || `Réponse inattendue du NAS (${response.status}).`);
-    }
-    return payload;
-}
-
-async function requestNpfSofiaNotamsStatus(session, requestId) {
-    const response = await fetchBriefingDocsNas(
-        `${NPF_BRIEFING_DOCS_API_URL}?action=sofia-notams-status&requestId=${encodeURIComponent(requestId)}&t=${Date.now()}`,
-        { method: 'GET', headers: briefingDocsAuthHeaders(session) },
-        NPF_NOTAMS_API_TIMEOUT_MS
-    );
-    if (response.status === 401) return { unauthorized: true };
-    return await response.json().catch(() => null);
-}
-
 function npfSofiaNotamsWait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/* Suivi d'une recherche jusqu'au fichier complet, 5 min au plus.
- * Avec session et identifiant : état léger toutes les 3 s. Sinon : relecture du
- * fichier public toutes les 60 s. Renvoie { kind: 'ready' | 'error' | 'timeout'
- * | 'offline' | 'ended', message }. Le fichier « ready » est déjà enregistré. */
-async function followNpfSofiaNotamsSearch(session, initial, onProgress = null) {
-    const startedAt = Date.now();
-    const requestId = String(initial?.requestId || '');
-    let useStatus = Boolean(session && requestId);
-    if (initial?.status === 'success' && (initial.reused === true || initial.today === true)) {
-        await fetchAndStoreNpfSofiaNotams();
-        return { kind: 'ready' };
-    }
-    while (Date.now() - startedAt < NPF_SOFIA_NOTAMS_FOLLOW_MAX_MS) {
-        if (!navigator.onLine) return { kind: 'offline' };
-        if (isNpfNasOffHours()) return { kind: 'ended' };
-        if (useStatus) {
-            await npfSofiaNotamsWait(NPF_SOFIA_NOTAMS_POLL_MS);
-            let state = null;
-            try { state = await requestNpfSofiaNotamsStatus(session, requestId); } catch (_) { continue; }
-            if (!state || state.unauthorized || state.ok !== true) {
-                if (state && !state.unauthorized && state.error !== 'unknown_request') continue;
-                useStatus = false;          // session perdue ou demande remplacée : relecture du fichier
-                continue;
-            }
-            const full = state.full && typeof state.full === 'object' ? state.full : {};
-            if (typeof onProgress === 'function') {
-                // v17.60 — avancement en demandes SOFIA : partie BFG (premier groupe)
-                // puis fichier complet ; total annoncé par le NAS (3 groupes sinon).
-                const total = Number(full.steps) > 0 ? Number(full.steps)
-                    : (Number(state.steps) > 0 ? Number(state.steps) * 3 : NPF_SOFIA_NOTAMS_SEARCH_STEPS);
-                onProgress(Number(full.step) > 0 ? Number(full.step) : Number(state.step) || 0, total);
-            }
-            if (full.status === 'success') {
-                await fetchAndStoreNpfSofiaNotams();
-                return { kind: 'ready' };
-            }
-            if (full.status === 'error' || state.status === 'error') {
-                return { kind: 'error', message: String(full.message || state.message || '').trim() };
-            }
-        } else {
-            await npfSofiaNotamsWait(NPF_SOFIA_NOTAMS_REREAD_MS);
-            let result = null;
-            try { result = await fetchAndStoreNpfSofiaNotams(); } catch (_) { continue; }
-            const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-            if (isNpfSofiaNotamsPayload(payload) && isNpfPelicNotamsPayloadCurrentToday(payload)) return { kind: 'ready' };
-            if (!result?.search?.active) return { kind: 'ended' };
-        }
-    }
-    return { kind: 'timeout' };
 }
 
 /* NOTAM SOFIA lus ou mis à jour : la fenêtre NOTAMS ouverte et l'état de
@@ -1700,12 +1606,12 @@ async function waitNpfMapIdleForNotams(maxMs = 30000) {
  * retour au premier plan, retour du réseau) : au plus une lecture toutes les
  * 10 min du fichier complet du NAS ; enregistré seulement s'il est plus récent
  * que la copie de l'iPad (ex. passage de 10:00). Jamais de recherche SOFIA,
- * jamais de mot de passe, rien entre 23h50 et 06h00. Échec réseau : silencieux,
+ * jamais de mot de passe (RUN v1.7 : fichier du VPS, à toute heure). Échec réseau : silencieux,
  * la copie de l'iPad est gardée. Lecture et enregistrement hors des gestes sur
  * la carte. Le NAS n'a pas d'état léger public : le « contrôle » lit le fichier
  * (conversion et écriture seulement s'il est plus récent). */
 async function lightUpdateNpfSofiaNotams(reason = '') {
-    if (!navigator.onLine || isNpfNasOffHours() || npfNotamsManualRefreshInProgress) return false;
+    if (!navigator.onLine || npfNotamsManualRefreshInProgress) return false;
     let lastCheck = 0;
     try { lastCheck = Number(localStorage.getItem(NPF_SOFIA_NOTAMS_LAST_CHECK_KEY) || 0); } catch (_) {}
     if (Number.isFinite(lastCheck) && Date.now() - lastCheck < NPF_SOFIA_NOTAMS_RECHECK_MS) return false;
@@ -1731,50 +1637,25 @@ async function lightUpdateNpfSofiaNotams(reason = '') {
     return stored;
 }
 
-/* Première connexion du jour (démarrage, retour au premier plan, retour du
- * réseau) : fichier complet du jour -> rien d'autre ; recherche en cours (BFG,
- * passage planifié…) -> attente de son résultat ; sinon recherche commune
- * « first-connection », seulement avec une session obtenue sans mot de passe
- * (session en cours ou pont BFG). Jamais de mot de passe demandé ici. */
+/* RUN v1.7 — première ouverture du jour (démarrage, retour au premier plan, retour du réseau) : copie du jour déjà sur
+ * l'iPad -> mise à jour légère (10 min au plus) ; sinon lecture du fichier du VPS. Aucune recherche n'est demandée
+ * (décision de Bastien : les recherches sont faites par la minuterie du VPS). Pas du jour après lecture : alerte, une
+ * fois par jour. */
 async function ensureNpfSofiaNotamsOfToday(reason = '') {
     if (npfSofiaNotamsDailyPromise) return npfSofiaNotamsDailyPromise;
     npfSofiaNotamsDailyPromise = (async () => {
-        if (!navigator.onLine || isNpfNasOffHours() || npfNotamsManualRefreshInProgress) return false;
+        if (!navigator.onLine || npfNotamsManualRefreshInProgress) return false;
         const local = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-        const localToday = isNpfSofiaNotamsPayload(local) && isNpfPelicNotamsPayloadCurrentToday(local);
-        // Copie du jour déjà sur l'iPad : mise à jour légère seulement (jamais de recherche).
-        if (localToday) return await lightUpdateNpfSofiaNotams(reason);
-
+        if (isNpfSofiaNotamsPayload(local) && isNpfPelicNotamsPayloadCurrentToday(local)) return await lightUpdateNpfSofiaNotams(reason);
         let result;
         try {
             result = await fetchAndStoreNpfSofiaNotams();
         } catch (error) {
-            console.info('[NPF-Q400 NOTAM] NAS injoignable :', error?.message || error);
+            console.info('[NPF-Q400 NOTAM] Serveur NOTAM injoignable :', error?.message || error);
             return false;
         }
-        let payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-        if (isNpfSofiaNotamsPayload(payload) && isNpfPelicNotamsPayloadCurrentToday(payload)) {
-            if (result.stored) await refreshOpenNpfNotamsViews();
-            return true;
-        }
-
-        console.info(`[NPF-Q400 NOTAM] ${reason} : aucun fichier NOTAM SOFIA du jour, recherche ${result.search?.active ? 'en cours' : 'à lancer'}.`);
-        if (result.search?.active) {
-            await followNpfSofiaNotamsSearch(getStoredBriefingDocsSession(), { requestId: result.search.requestId || '' });
-        } else {
-            let session = getStoredBriefingDocsSession();
-            if (!session) session = await tryAuthorizeBriefingDocsFromBfgBridge({ silent: true }).catch(() => null);
-            if (session) {
-                try {
-                    const answer = await requestNpfSofiaNotamsSearch(session, 'first-connection');
-                    if (!answer.unauthorized) await followNpfSofiaNotamsSearch(getStoredBriefingDocsSession(), answer);
-                } catch (error) {
-                    console.info('[NPF-Q400 NOTAM] Recherche du jour impossible :', error?.message || error);
-                }
-            }
-        }
-        payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-        await refreshOpenNpfNotamsViews();
+        const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
+        if (result.stored) await refreshOpenNpfNotamsViews();
         const ok = isNpfSofiaNotamsPayload(payload) && isNpfPelicNotamsPayloadCurrentToday(payload);
         if (!ok) showNpfSofiaNotamsAlertOncePerDay(payload);
         return ok;
@@ -1789,87 +1670,49 @@ async function ensureNpfSofiaNotamsOfToday(reason = '') {
     }
 }
 
-/* Bouton « Rafraîchir les NOTAM » : nouvelle recherche SOFIA complète (114
- * terrains), après confirmation. options.confirmed : retour de la fenêtre mot de passe. */
+/* RUN v1.7 — « dernière recherche réussie » : heure (La Réunion) du fichier NOTAM affiché. */
+function getNpfRunNotamsDerniereRechercheTexte(payload) {
+    const iso = getNpfNotamsSourceIso(payload);
+    const parts = iso ? formatNpfNotamsParisDate(iso, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : null;
+    return parts ? `Dernière recherche SOFIA réussie : ${parts.day}/${parts.month}/${parts.year} à ${parts.hour}:${parts.minute} (heure de La Réunion)` : '';
+}
+
+/* RUN v1.7 — bouton « Relire les NOTAM » : relit le fichier NOTAM du VPS (aucune recherche SOFIA demandée, aucun mot
+ * de passe) et affiche l'heure de la dernière recherche réussie. */
 async function refreshNpfNotamsFromNasManually(options = {}) {
     if (npfNotamsManualRefreshInProgress) return;
     if (!navigator.onLine) {
-        setNpfNotamsRefreshStatus('Hors ligne : recherche NOTAM impossible. Les NOTAM de cet iPad restent affichés.', { error: true });
+        setNpfNotamsRefreshStatus('Hors ligne : lecture des NOTAM impossible. Les NOTAM de cet iPad restent affichés.', { error: true });
         return;
     }
-    if (isNpfNasOffHours()) {
-        setNpfNotamsRefreshStatus('NAS éteint de 23h50 à 06h00 : recherche NOTAM impossible. Les NOTAM de cet iPad restent affichés.', { error: true });
-        return;
-    }
-    if (options.confirmed !== true) {
-        const confirmed = await npfConfirmInApp('La recherche complète des NOTAM sur SOFIA prend environ 1 minute.');
-        if (!confirmed) return;
-    }
-
     const button = document.getElementById('notams-refresh-button');
     npfNotamsManualRefreshInProgress = true;
     if (button) button.disabled = true;
     setNpfNotamsRefreshProgress(0, 0);
-
     try {
-        let session = getStoredBriefingDocsSession();
-        if (!session) session = await tryAuthorizeBriefingDocsFromBfgBridge({ silent: true }).catch(() => null);
-        if (!session) {
-            handleNpfNotamsAuthorizationMissing();
-            return;
-        }
-
         setNpfNotamsRefreshBusy(true);
-        setNpfNotamsRefreshStatus('Recherche des NOTAM sur SOFIA : demande envoyée…');
-        const answer = await requestNpfSofiaNotamsSearch(session, 'manual');
-        if (answer.unauthorized) {
-            setNpfNotamsRefreshBusy(false);
-            handleNpfNotamsAuthorizationMissing();
-            return;
-        }
-        setNpfNotamsRefreshStatus('Recherche des NOTAM sur SOFIA en cours (environ 1 minute)…');
-        const outcome = await followNpfSofiaNotamsSearch(session, answer, (step, total) => {
-            setNpfNotamsRefreshProgress(step, total || NPF_SOFIA_NOTAMS_SEARCH_STEPS);
-        });
+        setNpfNotamsRefreshStatus('Lecture des NOTAM de FMEP et FMEE sur le serveur…');
+        const result = await fetchAndStoreNpfSofiaNotams();
         setNpfNotamsRefreshBusy(false);
-        if (outcome.kind === 'ready') {
-            setNpfNotamsRefreshProgressDone();
-            const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-            const source = String(payload?.notamsAutoPdfStatus?.timestampText || 'NOTAM SOFIA');
-            setNpfNotamsRefreshStatus(`${source} : enregistrés sur cet iPad pour le hors ligne.`, { notamsIso: getNpfNotamsSourceIso(payload) });
-            await refreshOpenNpfNotamsViews();
+        const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
+        if (!result.hasFile && !payload) {
+            setNpfNotamsRefreshStatus('Aucun fichier NOTAM sur le serveur pour l’instant.', { error: true });
             return;
         }
-        setNpfNotamsRefreshProgress(0, 0);
-        if (outcome.kind === 'error') {
-            setNpfNotamsRefreshStatus(
-                `Recherche des NOTAM sur SOFIA impossible${outcome.message ? ` : ${outcome.message}` : ''}. Les NOTAM de cet iPad restent affichés.`,
-                { error: true }
-            );
-            return;
-        }
-        if (outcome.kind === 'offline') {
-            setNpfNotamsRefreshStatus('Connexion perdue : suivi de la recherche interrompu. Les NOTAM de cet iPad restent affichés.', { error: true });
-            return;
-        }
-        setNpfNotamsRefreshStatus('La recherche n’a pas abouti en 5 min. Les NOTAM de cet iPad restent affichés ; réessaie dans quelques minutes.', { error: true });
+        const derniere = getNpfRunNotamsDerniereRechercheTexte(payload);
+        setNpfNotamsRefreshStatus(`${derniere || 'NOTAM SOFIA'} — enregistrés sur cet iPad pour le hors ligne.`, { notamsIso: getNpfNotamsSourceIso(payload) });
+        await refreshOpenNpfNotamsViews();
     } catch (error) {
         setNpfNotamsRefreshBusy(false);
-        setNpfNotamsRefreshProgress(0, 0);
-        if (!getStoredBriefingDocsSession()) {
-            handleNpfNotamsAuthorizationMissing();
-        } else if (error?.name === 'AbortError') {
-            setNpfNotamsRefreshStatus('Le NAS ne répond pas (délai dépassé). Les NOTAM de cet iPad restent affichés.', { error: true });
-        } else {
-            setNpfNotamsRefreshStatus(`Recherche des NOTAM sur SOFIA impossible : ${error?.message || String(error)}. Les NOTAM de cet iPad restent affichés.`, { error: true });
-        }
+        setNpfNotamsRefreshStatus(error?.name === 'AbortError'
+            ? 'Le serveur ne répond pas (délai dépassé). Les NOTAM de cet iPad restent affichés.'
+            : `Lecture des NOTAM impossible : ${error?.message || String(error)}. Les NOTAM de cet iPad restent affichés.`, { error: true });
     } finally {
         setNpfNotamsRefreshBusy(false);
         npfNotamsManualRefreshInProgress = false;
         if (button) button.disabled = false;
     }
 }
-
 
 
 /* ========================================================================== 

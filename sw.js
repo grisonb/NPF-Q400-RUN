@@ -1,6 +1,6 @@
-/* NPF-Q400-RUN v1.6 (25/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
-const SW_VERSION = 'sw-run-v1-6';
-const APP_VERSION = 'v1.6';
+/* NPF-Q400-RUN v1.7 (25/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
+const SW_VERSION = 'sw-run-v1-7';
+const APP_VERSION = 'v1.7';
 const SIA_DATA_REVISION = 'sia-2026-10-29-v02-g15-run';
 const SIA_DATA_URL = './sia.js';
 /*
@@ -630,11 +630,15 @@ self.addEventListener('fetch', event => {
  * FIXE, même valeur que src/030 NPF_RUN_DONNEES_BASE_URL ; avant : dossier de l'app, servie par le VPS). */
 const NPF_RUN_DONNEES_BASE_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run/';
 const NPF_RUN_DATA_DIRS = ['carte/', 'calque-routier/'];
+/* RUN v1.7 — fichier NOTAM de FMEP / FMEE (service VPS npf-run-sofia-notams) : passage direct au réseau, jamais copié
+ * dans le cache du SW (même valeur que src/030 NPF_RUN_NOTAMS_URL). */
+const NPF_RUN_NOTAMS_DIR_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run-notams/';
 
 function isNpfMapServerRequest(url) {
     try {
         const href = new URL(url).href;
-        return NPF_RUN_DATA_DIRS.some(dir => href.startsWith(NPF_RUN_DONNEES_BASE_URL + dir));
+        return NPF_RUN_DATA_DIRS.some(dir => href.startsWith(NPF_RUN_DONNEES_BASE_URL + dir))
+            || href.startsWith(NPF_RUN_NOTAMS_DIR_URL);
     } catch (_) {
         return false;
     }

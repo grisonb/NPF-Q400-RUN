@@ -505,6 +505,8 @@ function getOfflinePackMaxNativeZoomLimitForPacks(packs = activeOfflinePacks) {
             onlyOaci500000 ? OACI_500000_OFFLINE_MAX_NATIVE_ZOOM : OACI_OFFLINE_MAX_NATIVE_ZOOM
         );
     }
+    /* RUN v1.7 — carte La Réunion avec le zoom 14 installé : cran 0,5 NM natif (src/030, src/280). */
+    if (typeof isNpfRunZoom14Installed === 'function' && isNpfRunZoom14Installed(packList)) return NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM;
     return OFFLINE_HARD_MAX_NATIVE_ZOOM;
 }
 

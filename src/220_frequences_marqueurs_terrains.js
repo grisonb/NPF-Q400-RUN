@@ -7,12 +7,18 @@ function getNpfDisplayedAirportRecordsForLabels() {
         const oaci = String(airport?.oaci || '').trim().toUpperCase();
         const lat = Number(airport?.lat);
         const lon = Number(airport?.lon);
-        if (!/^[A-Z]{4}$/.test(oaci) || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        /* RUN v1.7 — bases ULM (code interne à 4 chiffres) acceptées comme les autres terrains */
+        if (!(/^[A-Z]{4}$/.test(oaci) || (airport?.ulm && /^[0-9]{4}$/.test(oaci))) || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
         if (!byOaci.has(oaci)) byOaci.set(oaci, { ...airport, oaci, lat, lon });
     };
     (pelicanAirports || []).forEach(add);
     (otherAirports || []).forEach(add);
     (additionalAerodromes || []).forEach(add);
+    (typeof NPF_RUN_HELISTATIONS !== 'undefined' ? NPF_RUN_HELISTATIONS : []).forEach(add);   /* RUN v1.7 */
+    /* RUN v1.7 — sites de vol libre : étiquette « Déco … » / « Atterro … », sans code ni fréquence */
+    (typeof NPF_RUN_VOL_LIBRE !== 'undefined' ? NPF_RUN_VOL_LIBRE : []).forEach(site => {
+        if (!byOaci.has(site.code)) byOaci.set(site.code, { ...site, oaci: site.code, volLibre: true });
+    });
     return [...byOaci.values()];
 }
 
@@ -826,12 +832,15 @@ function refreshAirportOperationalLabels() {
     getNpfDisplayedAirportRecordsForLabels().forEach(airport => {
         const latlng = L.latLng(airport.lat, airport.lon);
         if (!bounds.contains(latlng)) return;
-        const freq = getAirportOperationalFrequency(airport.oaci);
+        /* RUN v1.7 — base ULM : fréquence BASULM (A/A) et code BASULM affiché */
+        const freq = getAirportOperationalFrequency(airport.oaci)
+            || (airport.ulm && airport.frequence ? { type: 'A/A', value: airport.frequence } : null);
         const airportName = String(airport.name || '').trim();
         const airportOaci = String(airport.oaci || '').trim().toUpperCase();
-        const airportDisplayName = airportName
-            ? `${airportName} (${airportOaci})`
-            : airportOaci;
+        const airportCode = String(airport.codeAffiche || airportOaci);
+        const airportDisplayName = airport.volLibre
+            ? `${airport.t === 'A' ? 'Atterro' : 'Déco'} ${airportName}`
+            : (airportName ? `${airportName} (${airportCode})` : airportCode);
         const frequencyHtml = freq
             ? (
                 Array.isArray(freq.groups) && freq.groups.length
@@ -1070,6 +1079,21 @@ function registerNpfAirportViewMarker(marker, airport) {
  * Leur zone tactile suit la même règle.
  */
 const NPF_NON_PELIC_AIRPORT_MIN_ZOOM = 7;
+/* RUN v1.7 — symbole des hélistations : rond blanc, bord vert foncé, H vert (aucun emoji, aucune image). */
+/* RUN v1.7 — sites de vol libre (symbole validé par Bastien) : losange de 26 px, voile de parapente ; décollage = losange
+ * ORANGE plein, voile blanche ; atterrissage = losange BLANC bordé d'orange, voile orange. */
+function buildNpfVolLibreSymbolSvg(decollage) {
+    const c = decollage ? '#ffffff' : '#f57c00';
+    const voile = `<path d="M6.2 12.4 Q13 4.6 19.8 12.4" stroke="${c}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`
+        + `<path d="M7.3 12.2 L13 17.6 L18.7 12.2" stroke="${c}" stroke-width="1.4" fill="none"/><circle cx="13" cy="18.2" r="1.9" fill="${c}"/>`;
+    const losange = decollage
+        ? '<path d="M13 1.2 L24.8 13 L13 24.8 L1.2 13 Z" fill="#f57c00" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>'
+        : '<path d="M13 1.9 L24.1 13 L13 24.1 L1.9 13 Z" fill="#ffffff" stroke="#f57c00" stroke-width="1.7" stroke-linejoin="round"/>';
+    return `<svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true">${losange}${voile}</svg>`;
+}
+const NPF_HELISTATION_SYMBOL_SVG = '<svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">'
+    + '<circle cx="11" cy="11" r="9.6" fill="#ffffff" stroke="#0b6e4f" stroke-width="2.4"/>'
+    + '<path d="M7.4 5.9v10.2M14.6 5.9v10.2M7.4 11h7.2" stroke="#0b6e4f" stroke-width="2.3" stroke-linecap="round" fill="none"/></svg>';
 
 function registerNpfAirportScaleLimited(layer, airport) {
     if (!layer || !airport) return layer;
@@ -1118,8 +1142,49 @@ function drawPermanentAirportMarkers() {
             zIndexOffset: 1700
         }), airport);
 
-        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${escapeHtml(airport.oaci)}</b><br>${escapeHtml(airport.name)}${buildVacButtonHtml(airport.oaci)}${buildAirportAddWpButtonHtml(airport.oaci)}</div>`;
+        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${escapeHtml(airport.codeAffiche || airport.oaci)}</b><br>${escapeHtml(airport.name)}${buildVacButtonHtml(airport.oaci)}${buildAirportAddWpButtonHtml(airport.oaci)}</div>`;
         registerNpfAirportScaleLimited(addAirportTouchHitbox(airport, popupHtml), airport);
+    });
+
+    /* RUN v1.7 — hélistations : rond blanc cerclé de vert avec un H (SVG dessiné par l'app), mêmes règles d'affichage
+     * et de fiche que les terrains non utilisables pour le Dash ; nom en étiquette à 2 NM et moins (étiquettes des
+     * terrains). */
+    (typeof NPF_RUN_HELISTATIONS !== 'undefined' ? NPF_RUN_HELISTATIONS : []).forEach(airport => {
+        registerNpfAirportScaleLimited(L.marker([airport.lat, airport.lon], {
+            icon: L.divIcon({
+                className: 'npf-helistation-icon',
+                html: NPF_HELISTATION_SYMBOL_SVG,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11],
+                popupAnchor: [0, -11]
+            }),
+            interactive: false,
+            keyboard: false,
+            zIndexOffset: 1690
+        }), airport);
+        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${escapeHtml(airport.oaci)}</b><br>${escapeHtml(airport.name)}<br>Hélistation${buildVacButtonHtml(airport.oaci)}${buildAirportAddWpButtonHtml(airport.oaci)}</div>`;
+        registerNpfAirportScaleLimited(addAirportTouchHitbox(airport, popupHtml), airport);
+    });
+
+    /* RUN v1.7 — sites de vol libre : losange (buildNpfVolLibreSymbolSvg), mêmes règles d'affichage que les terrains non
+     * utilisables pour le Dash ; fiche : type, nom, altitude, source. Aucun bouton (ni BASE, ni PÉLIC, ni WP). */
+    (typeof NPF_RUN_VOL_LIBRE !== 'undefined' ? NPF_RUN_VOL_LIBRE : []).forEach(site => {
+        const entree = { ...site, oaci: site.code };
+        registerNpfAirportScaleLimited(L.marker([site.lat, site.lon], {
+            icon: L.divIcon({
+                className: 'npf-vol-libre-icon',
+                html: buildNpfVolLibreSymbolSvg(site.t === 'D'),
+                iconSize: [26, 26],
+                iconAnchor: [13, 13],
+                popupAnchor: [0, -13]
+            }),
+            interactive: false,
+            keyboard: false,
+            zIndexOffset: 1680
+        }), entree);
+        const altitude = Number.isFinite(Number(site.alt)) ? `${site.alt} m / ${Math.round(site.alt / 0.3048).toLocaleString('fr-FR')} ft` : '';
+        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${site.t === 'A' ? 'Atterrissage' : 'Décollage'} vol libre</b><br>${escapeHtml(site.name)}${altitude ? `<br>${altitude}` : ''}<br><span class="npf-vol-libre-source">© OpenStreetMap (ODbL), d'après la FFVL</span></div>`;
+        registerNpfAirportScaleLimited(addAirportTouchHitbox(entree, popupHtml), entree);
     });
 
     otherAirports.forEach(airport => {

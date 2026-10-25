@@ -1329,7 +1329,7 @@ function saveGaarCircuits() { localStorage.setItem('gaarCircuits', JSON.stringif
 
 function updateCalculatorData() {
     if (!currentCommune) {
-        CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0 };
+        CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0, distBingo1Feu: 0, distBingo2Feu: 0 };
     } else {
         const baseAirport = getAirportByOaci(selectedBaseOACI);
         const selectedPelican = getSelectedPelicanAirport();
@@ -1342,6 +1342,11 @@ function updateCalculatorData() {
         CALCULATOR_DATA.distPelicFeu = Math.round(distPelicFeu);
         CALCULATOR_DATA.csFeu = csFeu;
         CALCULATOR_DATA.distGpsFeu = Math.round(distGpsFeu);
+        /* RUN v1.7 — distances des BINGO 1 (FMEP) et 2 (FMEE), toujours ces terrains (src/290). */
+        const bingo1Airport = getAirportByOaci(NPF_RUN_BINGO1_OACI);
+        const bingo2Airport = getAirportByOaci(NPF_RUN_BINGO2_OACI);
+        CALCULATOR_DATA.distBingo1Feu = bingo1Airport ? Math.round(calculateDistanceInNm(bingo1Airport.lat, bingo1Airport.lon, feuLat, feuLon)) : 0;
+        CALCULATOR_DATA.distBingo2Feu = bingo2Airport ? Math.round(calculateDistanceInNm(bingo2Airport.lat, bingo2Airport.lon, feuLat, feuLon)) : 0;
     }
     if (typeof masterRecalculate === 'function') { masterRecalculate(); }
 }

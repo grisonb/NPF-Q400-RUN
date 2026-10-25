@@ -4409,6 +4409,8 @@ async function runNpfServerMapDownload(mapId) {
             origin: 'serveur',
             versionCarte: manifest.versionCarte || null,
             serverCreeLe: manifest.creeLe,
+            /* RUN v1.7 — zoom maximal de la carte (RUN-6 : 14) ; absent = 13 */
+            zoomMax: Number(manifest.zoomMax) || 13,
             /* v17.80 — fond sans noms : le calque des noms est affiché par-dessus. */
             calqueNoms: cfg.avecNoms ? true : undefined
         });
@@ -4510,6 +4512,25 @@ function getNpfInstalledV11Pack() {
     return getInstalledMapPacksSafe().find(pack => pack && pack.name === cfg.packName && pack.calqueNoms === true && pack.origin === 'serveur') || null;
 }
 
+/* RUN v1.7 — la carte La Réunion installée contient-elle le zoom 14 (manifeste RUN-6 « zoomMax » 14, recopié dans la
+ * fiche de la carte au téléchargement complet ou à la mise à jour) ? packs : carte(s) affichée(s), par défaut la carte. */
+function isNpfRunZoom14Installed(packs = null) {
+    try {
+        const cfg = getNpfServerSection('npf-q400');
+        if (Array.isArray(packs) && packs.length && !packs.includes(cfg.packName)) return false;
+        const pack = getNpfInstalledV11Pack();
+        return !!pack && Number(pack.zoomMax) >= NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM;
+    } catch (_) {
+        return false;
+    }
+}
+
+/* RUN v1.7 — couches connues d'un morceau de carte (fond + calques) : un morceau NOUVEAU de n'importe laquelle est
+ * accepté par la mise à jour partielle (v1.5 : seulement îlets / relief ; v1.7 : zoom 14 du fond et des noms aussi). */
+function isNpfCarteCoucheConnue(couche) {
+    return couche === 'fond' || isNpfCalqueCouche(couche);
+}
+
 function readNpfCarteMajState() {
     const state = readNpfJsonStorage(NPF_CARTE_MAJ_STATE_KEY, null);
     return state && typeof state === 'object' && state.creeLe ? state : null;
@@ -4553,7 +4574,8 @@ function computeNpfCarteMajPlan(manifest) {
             : { etat: 'complet', raison: 'liste des morceaux installés inconnue' };
     }
     /* RUN v1.5 — le manifeste peut AJOUTER des morceaux à la fin (« nouveau » : calques îlets / relief) : ils sont
-     * simplement téléchargés ; les morceaux déjà installés suivent la règle v17.88. */
+     * simplement téléchargés ; les morceaux déjà installés suivent la règle v17.88.
+     * RUN v1.7 — morceaux nouveaux du fond et des noms aussi (zoom 14). */
     if (ref.format !== manifest.format || ref.morceaux.length > manifest.morceaux.length) {
         return { etat: 'complet', raison: 'liste des morceaux différente' };
     }
@@ -4561,7 +4583,7 @@ function computeNpfCarteMajPlan(manifest) {
     for (let index = 0; index < manifest.morceaux.length; index += 1) {
         const installed = ref.morceaux[index];
         const chunk = manifest.morceaux[index];
-        if (!installed && chunk && chunk.nouveau === true && isNpfCalqueCouche(chunk.couche)) {
+        if (!installed && chunk && chunk.nouveau === true && isNpfCarteCoucheConnue(chunk.couche)) {
             indices.push(index);
             continue;
         }
@@ -4739,7 +4761,7 @@ async function runNpfCarteMaj() {
             writeNpfCarteMorceaux(ref);
         }
         const installed = getInstalledMapPacksSafe().map(item => (item && item.name === cfg.packName)
-            ? { ...item, sizeBytes: Number(manifest.totalOctets) || item.sizeBytes, serverCreeLe: manifest.creeLe, versionCarte: manifest.versionCarte || item.versionCarte, date: new Date().toLocaleDateString() }
+            ? { ...item, sizeBytes: Number(manifest.totalOctets) || item.sizeBytes, serverCreeLe: manifest.creeLe, versionCarte: manifest.versionCarte || item.versionCarte, zoomMax: Number(manifest.zoomMax) || 13, date: new Date().toLocaleDateString() }
             : item);
         localStorage.setItem('installedMapPacks', JSON.stringify(installed));
         recordNpfCalqueNomsInstalled(manifest, countNoms);

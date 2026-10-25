@@ -8,16 +8,17 @@ function updateMapBingoDisplay() {
         return;
     }
 
-    const bingoBase = calculateBingo(CALCULATOR_DATA.distBaseFeu);
-    const bingoPelic = calculateBingo(CALCULATOR_DATA.distPelicFeu);
+    /* RUN v1.7 — BINGO 1 TOUJOURS FMEP (seul pélicandrome), BINGO 2 TOUJOURS FMEE (dégagement) : src/290. */
+    const bingo1 = calculateBingo(CALCULATOR_DATA.distBingo1Feu);
+    const bingo2 = calculateBingo(CALCULATOR_DATA.distBingo2Feu);
 
     const lftwEl = document.getElementById('map-bingo-lftw');
     const pelicEl = document.getElementById('map-bingo-pelic');
 
-    lftwEl.innerHTML = `<span class="bingo-title">BINGO BASE <span class="bingo-oaci">${selectedBaseOACI}</span>:</span> <b>${bingoBase} kg</b>`;
+    lftwEl.innerHTML = `<span class="bingo-title">BINGO 1 <span class="bingo-oaci">${NPF_RUN_BINGO1_OACI}</span>:</span> <b>${bingo1} kg</b>`;
 
-    if (bingoPelic !== 700 && selectedPelicanOACI) {
-        pelicEl.innerHTML = `<span class="bingo-title">BINGO <span class="bingo-oaci">${selectedPelicanOACI}</span>:</span> <b>${bingoPelic} kg</b>`;
+    if (bingo2 !== 700) {
+        pelicEl.innerHTML = `<span class="bingo-title">BINGO 2 <span class="bingo-oaci">${NPF_RUN_BINGO2_OACI}</span>:</span> <b>${bingo2} kg</b>`;
         pelicEl.style.display = 'inline-block';
     } else {
         pelicEl.style.display = 'none';
@@ -739,7 +740,7 @@ function updateBaseLabels() {
     if (previCsBaseLabel) previCsBaseLabel.textContent = 'Base';
     updateBaseOaciInputs();
     document.querySelectorAll('.base-bingo-label').forEach(el => {
-        el.textContent = 'BINGO BASE';
+        el.textContent = 'BINGO 1 FMEP';   /* RUN v1.7 — BINGO 1 toujours FMEP */
     });
     const deroutFuelMiniBaseLabel = document.getElementById('derout-fuel-mini-base-label');
     if (deroutFuelMiniBaseLabel) deroutFuelMiniBaseLabel.textContent = `Fuel mini 1 Lrg / BASE (${selectedBaseOACI}) :`;

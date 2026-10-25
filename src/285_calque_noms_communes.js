@@ -264,7 +264,8 @@ function buildNpfCalqueNomsLayer(info, calque = null) {
         minZoom: calque ? calque.minZoom : NPF_CALQUE_NOMS_MIN_ZOOM,
         /* RUN v1.5 — même pane : noms de base au-dessus, puis îlets, puis relief (aucun recouvrement : placement commun). */
         zIndex: calque ? calque.zIndex : 3,
-        maxNativeZoom: NPF_CALQUE_NOMS_NATIVE_MAX_ZOOM,
+        /* RUN v1.7 — noms, îlets et relief ont aussi le zoom 14 dans la carte RUN-6 */
+        maxNativeZoom: (typeof isNpfRunZoom14Installed === 'function' && isNpfRunZoom14Installed()) ? NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM : NPF_CALQUE_NOMS_NATIVE_MAX_ZOOM,
         maxZoom: GLOBAL_MAX_ZOOM,
         keepBuffer: 1,
         updateWhenZooming: false,

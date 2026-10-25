@@ -52,8 +52,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>NPF-Q400-RUN</title>
     <link rel="stylesheet" href="leaflet.css">
-    <link rel="stylesheet" href="style.css?appv=v1.6">
-    <link rel="manifest" href="manifest.json?appv=v1.6">
+    <link rel="stylesheet" href="style.css?appv=v1.7">
+    <link rel="manifest" href="manifest.json?appv=v1.7">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png?appv=run3">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png?appv=v13.92">
     <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?appv=run3">
@@ -111,7 +111,7 @@
     <div id="app-boot-screen" aria-live="polite">
         <div class="boot-card">
             <div>NPF-Q400-RUN — démarrage…</div>
-            <div class="boot-version">NPF-Q400-RUN v1.6 (La Réunion)</div>
+            <div class="boot-version">NPF-Q400-RUN v1.7 (La Réunion)</div>
         </div>
     </div>
     <script>
@@ -711,7 +711,7 @@
             };
         } catch (_) {}
 
-        const APP_VERSION = 'v1.6';
+        const APP_VERSION = 'v1.7';
         const SERVICE_WORKER_URL = `./sw.js?appv=${encodeURIComponent(APP_VERSION)}`;
         const APP_VERSION_STORAGE_KEY = 'appVersion';
         const SW_CONTROLLER_RELOAD_GUARD_KEY = 'swControllerReloadGuard';
@@ -1554,7 +1554,7 @@
     <script src="suncalc.js"></script>
     <script src="jszip.min.js"></script>
     <script src="sia.js?siav=sia-2026-10-29-v02-g15-run"></script>
-    <script src="script.js?appv=v1.6"></script>
+    <script src="script.js?appv=v1.7"></script>
     
     <div id="fuel-split-modal" class="fuel-split-modal" style="display: none;">
         <div class="fuel-split-modal-content">
@@ -1656,7 +1656,7 @@
 <div class="onglet-panneau" id="suivi-rotations">
                     <div class="analyse-grid">
                         <div class="analyse-col">
-                            <div class="bingo-group"><div class="result-line"><span class="label base-bingo-label">BINGO BASE</span><span class="value" id="suivi-bingo-base">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="bingo-group"><div class="result-line"><span class="label base-bingo-label">BINGO 1 FMEP</span><span class="value" id="suivi-bingo-base">-- kg</span></div></div><hr class="analyse-separator">
                             <div class="rotations-group rotation-count-group">
                                 <h3 class="analyse-col-title">Nbr Largages Restants</h3>
                                     
@@ -1671,7 +1671,7 @@
                             </div>
                         </div>
                         <div class="analyse-col">
-                            <div class="bingo-group"><div class="result-line"><span class="label">BINGO PELIC</span><span class="value" id="suivi-bingo-pelic">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="bingo-group"><div class="result-line"><span class="label">BINGO 2 FMEE</span><span class="value" id="suivi-bingo-pelic">-- kg</span></div></div><hr class="analyse-separator">
                             <div class="rotations-group rotation-details-group">
                                  <h3 class="analyse-col-title" style="visibility: hidden;">&nbsp;</h3>
                                 <div class="result-line"><span class="label">CS sur Feu :</span><span class="value" id="suivi-cs-sur-feu">--:--</span></div>
@@ -1690,7 +1690,7 @@
 <div class="onglet-panneau" id="deroutement">
                     <div class="analyse-grid">
                          <div class="analyse-col">
-                            <div class="bingo-group"><div class="result-line"><span class="label base-bingo-label">BINGO BASE</span><span class="value" id="derout-bingo-base">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="bingo-group"><div class="result-line"><span class="label base-bingo-label">BINGO 1 FMEP</span><span class="value" id="derout-bingo-base">-- kg</span></div></div><hr class="analyse-separator">
                             <div class="rotations-group derout-fuel-mini-group">
                                 <h3 class="analyse-col-title">FUEL MINI</h3>
                                 <div class="result-line derout-fuel-mini-base-line"><span class="label"><span id="derout-fuel-mini-base-label">Fuel mini 1 Lrg / BASE (FMEP) :</span><span id="derout-fuel-mini-base-help" class="formula-help-icon">?</span></span><span class="value" id="derout-fuel-mini-base">-- kg</span></div>
@@ -1712,7 +1712,7 @@
                             </div>
                         </div>
                         <div class="analyse-col">
-                            <div class="bingo-group"><div class="result-line"><span class="label">BINGO PELIC</span><span class="value" id="derout-bingo-pelic">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="bingo-group"><div class="result-line"><span class="label">BINGO 2 FMEE</span><span class="value" id="derout-bingo-pelic">-- kg</span></div></div><hr class="analyse-separator">
                             <div class="rotations-group rotation-details-group">
                                  <h3 class="analyse-col-title" style="visibility: hidden;">&nbsp;</h3>
                                 <div class="result-line"><span class="label">Fuel actuel :</span><div id="deroutement-fuel-wrapper" class="input-wrapper numeric-input-wrapper fuel-split-input-wrapper" data-unit="kg"><input type="text" class="display-input manual-input" inputmode="numeric"><span class="clear-btn">&times;</span></div></div>
@@ -1794,12 +1794,13 @@
                 <div class="vac-management-section notams-management-section">
                     <h3 class="maps-management-title">NOTAM</h3>
                     <p>
-                        NOTAM SOFIA des 114 terrains NPF-Q400 (recherches automatiques à 06h30 et 10h00,
-                        et à la première connexion du jour), stockés sur cet appareil pour une utilisation hors ligne.
+                        NOTAM SOFIA de FMEP et FMEE (recherches automatiques sur le serveur à 05h30, 06h30, 08h00, 10h00,
+                        13h00 et 16h00 heure de La Réunion), lus à l'ouverture de l'app et stockés sur cet appareil pour une
+                        utilisation hors ligne.
                     </p>
                     <div class="vac-management-actions">
                         <button id="notams-refresh-button" type="button" class="import-button">
-                            Rafraîchir les NOTAM
+                            Relire les NOTAM
                         </button>
                     </div>
                     <div id="notams-refresh-status" class="vac-installed-status notams-refresh-status" aria-live="polite">
@@ -1845,6 +1846,8 @@
                     <div id="npf-map-installed-status" class="npf-map-installed-status"></div>
                     <!-- RUN v1.2 — sources de la carte La Réunion (relief : licence Etalab). -->
                     <div class="npf-map-sources">Sources de la carte : © OpenStreetMap (ODbL) ; relief et altitudes : IGN – RGE ALTI (Licence Ouverte Etalab 2.0).</div>
+                    <!-- RUN v1.7 — sources des bases ULM, des sites de vol libre et des NOTAM (licences vérifiées le 25/10/2026) -->
+                    <div class="npf-map-sources">Bases ULM : © Fédération Française d'ULM (BASULM). Sites de vol libre : © les contributeurs d'OpenStreetMap (ODbL), d'après la FFVL. NOTAM : SOFIA-Briefing (SIA, Licence Ouverte). Informations non officielles : elles ne remplacent pas l'AIP ni les VAC.</div>
                     <div class="import-help-row npf-map-download-row npf-run-section-masquee">
                         <button type="button" id="oaci500-download-button" class="import-button">Télécharger la carte OACI 1/500 000 (670 Mo)</button>
                         <button type="button" class="import-help-button npf-map-download-help-spacer" tabindex="-1" aria-hidden="true">?</button>

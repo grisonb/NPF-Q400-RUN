@@ -3724,6 +3724,8 @@ async function refreshSiaLayers(reason = 'manual') {
         const npfDiagBuildPointsStart = NPF_STARTUP_DIAGNOSTIC.now();
 
         for (const { item, latlng } of visibleTerrainItems) {
+            /* RUN v1.7 — hélistations dessinées par l'app (rond avec un H, src/220) : pas de rond SIA en double. */
+            if (item && item.t === 'HP') continue;
             await yieldSiaRefreshIfLong();
             const terrainPopupHtml = buildSiaTerrainPopup(item);
             const marker = L.circleMarker(latlng, {

@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.6';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.7';
 
 
 /*
@@ -6716,6 +6716,9 @@ let communesPopulationLoadPromise = null;
 /* RUN — base par défaut : FMEP Saint-Pierre-Pierrefonds (décision de Bastien du 23/10/2026), qui est aussi le
  * pélicandrome normal ; modifiable dans le champ Base. */
 const DEFAULT_BASE_OACI = 'FMEP';
+/* RUN v1.7 — BINGO 1 toujours FMEP (seul pélicandrome), BINGO 2 toujours FMEE (dégagement) : src/290, src/150, src/270. */
+const NPF_RUN_BINGO1_OACI = 'FMEP';
+const NPF_RUN_BINGO2_OACI = 'FMEE';
 let selectedBaseOACI = DEFAULT_BASE_OACI;
 let gaarCircuits = [];
 let isGaarMode = false;
@@ -6756,6 +6759,12 @@ const VAC_STORE_NAME = 'vacPdfs';
  * VPS, dans le dossier npf-q400-run/ : carte/, calque-routier/, vac/ (CORS du VPS ouvert à https://grisonb.github.io).
  * Adresse FIXE (avant v1.6 : calculée depuis celle de l'app, servie par le VPS). sw.js : NPF_RUN_DONNEES_BASE_URL. */
 const NPF_RUN_DONNEES_BASE_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run/';
+/* RUN v1.7 — NOTAM de FMEP et FMEE : fichier du service VPS séparé npf-run-sofia-notams, dans un dossier À PART
+ * (dossier npf-q400-run-notams/ du serveur : une installation de la carte ne le touche jamais ; CORS https://grisonb.github.io).
+ * sw.js : même adresse. */
+const NPF_RUN_NOTAMS_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run-notams/notams-run.json';
+/* RUN v1.7 — terrains du fichier NOTAM (couverture par défaut, lue dès le chargement par src/210 : déclarée ici). */
+const NPF_RUN_NOTAMS_TERRAINS = ['FMEP', 'FMEE'];
 /* RUN — VAC de La Réunion dans le dossier vac/ du VPS (même format que NPF-Q400-VAC). */
 const VAC_REPOSITORY_BASE_URL = `${NPF_RUN_DONNEES_BASE_URL}vac/`;
 const VAC_MANIFEST_URL = `${VAC_REPOSITORY_BASE_URL}manifest.json`;
@@ -7233,6 +7242,10 @@ const COMMUNES_DISPLAY_MIN_ZOOM = 10.5;
 const ONLINE_MAX_NATIVE_ZOOM = 18;
 const OFFLINE_FALLBACK_NATIVE_ZOOM = 14;
 const OFFLINE_HARD_MAX_NATIVE_ZOOM = 13;
+/* RUN v1.7 — cran 0,5 NM (décision de Bastien du 25/10/2026) : la carte La Réunion RUN-6 contient le ZOOM 14 natif (fond,
+ * noms, îlets, relief). Limite 14 SEULEMENT quand la carte installée l'a (manifeste « zoomMax » 14, src/280
+ * isNpfRunZoom14Installed) : une carte RUN-5 (sans zoom 14) garde la limite 13, jamais de case blanche. */
+const NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM = 14;
 // v13.58 — iPad : démarrage offline séquencé, sans scan IndexedDB lourd au lancement.
 // v16.42 — mémoire iPad : petit tampon NPF pour éviter l'accumulation de niveaux de zoom décodés.
 const OFFLINE_TILE_KEEP_BUFFER = 4;
@@ -7906,6 +7919,58 @@ otherAirports.forEach(airport => {
 
 const additionalAerodromes = piafMetropolitanAerodromes
     .filter(airport => !existingAirportCodesForAdditionalDisplay.has(airport.oaci));
+
+/* RUN v1.7 — BASES ULM de La Réunion (liste validée par Bastien le 25/10/2026) : les 5 fiches FFPLUM BASULM (position,
+ * fréquence ; « Source : Fédération Française d'ULM (BASULM) », mention dans Gestion des Cartes ; contacts NON repris).
+ * Même dessin, même étiquette (nom + fréquence à 2 NM et moins) et même comportement que les aérodromes « non
+ * utilisables pour le Dash » de la TEST (additionalAerodromes) : jamais pélicandrome, terrain le plus proche, rotation,
+ * BINGO ni dégagement. Code interne à 4 chiffres (l'app limite les codes à 4 caractères) ; code BASULM affiché. */
+const NPF_RUN_ULM_BASES = Object.freeze([
+    { oaci: '9741', codeAffiche: 'FM97401', name: 'LA SALINE-LES-BAINS ULM', lat: -21.097213, lon: 55.249107, frequence: '123.500' },
+    { oaci: '9742', codeAffiche: 'FM97402', name: 'CAMBAIE ULM', lat: -20.963263, lon: 55.281615, frequence: '122.100' },
+    { oaci: '9743', codeAffiche: 'FM97403', name: 'GRAND COUDE ULM (ALTISURFACE)', lat: -21.288811, lon: 55.623555, frequence: '123.500' },
+    { oaci: '9744', codeAffiche: 'FM97404', name: 'BRAS-PANON UCA ULM', lat: -20.985884, lon: 55.664506, frequence: '123.500' },
+    { oaci: '9745', codeAffiche: 'FM97405', name: 'TROIS-BASSINS PARAMOTEUR ULM', lat: -21.112064, lon: 55.261705, frequence: '' }
+]);
+NPF_RUN_ULM_BASES.forEach(base => additionalAerodromes.push({ ...base, ulm: true }));
+
+/* RUN v1.7 — HÉLISTATIONS de La Réunion (SIA, AIRAC de la RUN) : rond avec un H dessiné par l'app (src/220) et nom en
+ * étiquette (comme les aérodromes, 2 NM et moins). Jamais pélicandrome, terrain le plus proche, rotation, BINGO ni
+ * dégagement (hors de pelicanAirports / otherAirports). Le rond SIA vert n'est plus dessiné en double (src/340). */
+const NPF_RUN_HELISTATIONS = Object.freeze([
+    { oaci: 'FMEH', name: "SAINT PAUL L'ERMITAGE", lat: -21.068056, lon: 55.249444 },
+    { oaci: 'FMEL', name: "SAINT PAUL L'EPERON", lat: -21.034908, lon: 55.260283 },
+    { oaci: 'FMEM', name: 'MAFATE - LA NOUVELLE', lat: -21.075556, lon: 55.419167 },
+    { oaci: 'FMEN', name: 'SAINT DENIS CHU', lat: -20.891031, lon: 55.444075 },
+    { oaci: 'FMES', name: 'SAINT PIERRE CHU SUD', lat: -21.345556, lon: 55.493389 }
+]);
+
+/* RUN v1.7 — SITES DE VOL LIBRE de La Réunion (liste et symbole validés par Bastien le 25/10/2026) : décollages et
+ * atterrissages de confiance élevée, positions et altitudes OpenStreetMap (« © les contributeurs d'OpenStreetMap »,
+ * ODbL ; d'après la FFVL). Losange dessiné par l'app (src/220), nom en étiquette à 2 NM et moins. Jamais pélicandrome,
+ * terrain le plus proche, rotation, BINGO ni dégagement (hors de toutes les listes de terrains). t : D décollage,
+ * A atterrissage ; alt : mètres. Code interne VL01 à VL19 (étiquettes, fiche). */
+const NPF_RUN_VOL_LIBRE = Object.freeze([
+    { code: 'VL01', t: 'D', name: 'Colimaçons 800', lat: -21.131807, lon: 55.30328, alt: 765 },
+    { code: 'VL02', t: 'D', name: 'Colimaçons 700', lat: -21.150193, lon: 55.306847, alt: 620 },
+    { code: 'VL03', t: 'D', name: 'Saint-Leu 1400', lat: -21.150954, lon: 55.342327, alt: 1395 },
+    { code: 'VL04', t: 'D', name: 'Maïdo', lat: -21.059164, lon: 55.381736, alt: 2002 },
+    { code: 'VL05', t: 'D', name: 'Bellemène 850', lat: -21.022593, lon: 55.321966, alt: 733 },
+    { code: 'VL06', t: 'D', name: "Dos d'Âne", lat: -20.97741, lon: 55.368595, alt: 843 },
+    { code: 'VL07', t: 'D', name: 'Piton des Neiges', lat: -21.098751, lon: 55.480391, alt: 3034 },
+    { code: 'VL08', t: 'D', name: 'Le Dimitile', lat: -21.190143, lon: 55.484547, alt: 1741 },
+    { code: 'VL09', t: 'D', name: 'Piton Textor', lat: -21.187506, lon: 55.635087, alt: 2127 },
+    { code: 'VL10', t: 'D', name: 'Pente Zézé (Rivière des Remparts)', lat: -21.200003, lon: 55.646091, alt: 2275 },
+    { code: 'VL11', t: 'D', name: 'Piton Rond', lat: -21.15495, lon: 55.597765, alt: 1402 },
+    { code: 'VL12', t: 'D', name: 'Plaine des Grègues', lat: -21.320684, lon: 55.59319, alt: 916 },
+    { code: 'VL13', t: 'D', name: "Piton de l'Entonnoir", lat: -21.356835, lon: 55.614441, alt: 430 },
+    { code: 'VL14', t: 'D', name: 'Matouta', lat: -21.358929, lon: 55.696397, alt: 443 },
+    { code: 'VL15', t: 'A', name: 'Kélonia (plage de Saint-Leu)', lat: -21.152048, lon: 55.278419, alt: 8 },
+    { code: 'VL16', t: 'A', name: 'Petite Plaine (Piton Textor)', lat: -21.152223, lon: 55.600241, alt: 1196 },
+    { code: 'VL17', t: 'A', name: 'Cap Méchant (Matouta)', lat: -21.374503, lon: 55.70818, alt: 30 },
+    { code: 'VL18', t: 'A', name: "Ligne Trovalet (Piton de l'Entonnoir)", lat: -21.369112, lon: 55.603542, alt: 112 },
+    { code: 'VL19', t: 'A', name: "Stade de L'Entre-Deux (Dimitile)", lat: -21.247689, lon: 55.466255, alt: 360 }
+]);
 
 
 /*
@@ -8658,46 +8723,34 @@ const formatRouteDegrees = (bearing) => {
     return text === null ? '---,-°' : `${text}°`;
 };
 /*
- * v17.89 — règle de vitesse UNIQUE (décision de Bastien, corrigée le 20/10/2026), temps d'aller simple t en minutes
- * pour une distance d en Nm, non arrondi :
- * - d ≤ 70 Nm : t = d / 3,5 (toute la distance à 210 kt) ;
- * - d > 70 Nm : t = max(d / 4 ; 20) (toute la distance à 240 kt, jamais moins que les 20 min du temps à 70 Nm).
- * Une distance plus grande ne donne jamais une durée plus courte (elle peut donner la même : 70 à 80 Nm = 20 min).
- * Seule fonction utilisée pour le temps de vol des étiquettes, le transit et la rotation du calculateur (avant : seuil
- * à 50 Nm pour la rotation, 70 Nm pour le transit, et 71 Nm plus court que 70 Nm). Distance non numérique : NaN.
+ * RUN v1.7 — règle de vitesse UNIQUE de la RUN (décision de Bastien du 25/10/2026) : 200 kt pour TOUTES les distances.
+ * Temps d'aller simple t en minutes pour une distance d en Nm, non arrondi : t = d × 60 / 200 = d × 0,3.
+ * (TEST v17.89 : ≤ 70 Nm à 210 kt, > 70 Nm à 240 kt, jamais moins de 20 min.) Toujours la seule fonction utilisée pour
+ * le temps de vol des étiquettes, le transit, la rotation (« Rot. », calculateur) et les aides. Distance non numérique : NaN.
  */
-const NPF_TRANSIT_SPEED_THRESHOLD_NM = 70;
-const NPF_TRANSIT_SLOW_NM_PER_MIN = 3.5;
-const NPF_TRANSIT_FAST_NM_PER_MIN = 4;
-const NPF_TRANSIT_MIN_BEYOND_THRESHOLD_MIN = NPF_TRANSIT_SPEED_THRESHOLD_NM / NPF_TRANSIT_SLOW_NM_PER_MIN;
-const NPF_TRANSIT_RULE_TEXT = '≤ 70 Nm : distance / 3,5 (210 kt) ; > 70 Nm : distance / 4 (240 kt), jamais moins de 20 min (temps à 70 Nm) — ex. 54 Nm = 15,4 min, 80 Nm = 20 min, 100 Nm = 25 min';
+const NPF_TRANSIT_SPEED_KT = 200;
+const NPF_TRANSIT_MIN_PER_NM = 60 / NPF_TRANSIT_SPEED_KT;
+const NPF_TRANSIT_RULE_TEXT = '200 kt pour toutes les distances : distance × 0,3 min (60 / 200) — ex. 10 Nm = 3 min, 20 Nm = 6 min, 54 Nm = 16,2 min';
 
 function calculateNpfOneWayTransitMinutes(distanceNm) {
     const distance = Number(distanceNm);
     if (!Number.isFinite(distance)) return NaN;
-    if (distance <= NPF_TRANSIT_SPEED_THRESHOLD_NM) return distance / NPF_TRANSIT_SLOW_NM_PER_MIN;
-    return Math.max(distance / NPF_TRANSIT_FAST_NM_PER_MIN, NPF_TRANSIT_MIN_BEYOND_THRESHOLD_MIN);
+    return distance * NPF_TRANSIT_MIN_PER_NM;
 }
 
-/* v17.89 — détail du calcul pour les aides du calculateur, ex. « 54 / 3,5 = 15,4 min », « 100 / 4 = 25 min »,
- * « 80 / 4 = 20 min, minimum 20 min (temps à 70 Nm) : 20 min ». */
+/* RUN v1.7 — détail du calcul pour les aides du calculateur, ex. « 54 × 0,3 = 16,2 min (200 kt) ». */
 function formatNpfOneWayTransitCalculation(distanceNm) {
     const distance = Number(distanceNm);
     if (!Number.isFinite(distance)) return 'N/A';
     const tenth = value => String(Math.round(value * 10) / 10).replace('.', ',');
-    const minutes = tenth(calculateNpfOneWayTransitMinutes(distance));
-    if (distance <= NPF_TRANSIT_SPEED_THRESHOLD_NM) return `${tenth(distance)} / 3,5 = ${minutes} min`;
-    const fast = distance / NPF_TRANSIT_FAST_NM_PER_MIN;
-    return fast >= NPF_TRANSIT_MIN_BEYOND_THRESHOLD_MIN
-        ? `${tenth(distance)} / 4 = ${minutes} min`
-        : `${tenth(distance)} / 4 = ${tenth(fast)} min, minimum 20 min (temps à 70 Nm) : ${minutes} min`;
+    return `${tenth(distance)} × 0,3 = ${tenth(calculateNpfOneWayTransitMinutes(distance))} min (200 kt)`;
 }
 
 function calculateOneWayFlightTimeMinutes(distanceNm) {
     /*
      * v11.58 — temps de vol étiquette carte.
      * Distance prise uniquement : feu ↔ base ou feu ↔ pélicandrome.
-     * v17.89 — règle unique (calculateNpfOneWayTransitMinutes), arrondie à la minute.
+     * v17.89 — règle unique (calculateNpfOneWayTransitMinutes), arrondie à la minute (RUN v1.7 : 200 kt).
      */
     const distance = Number(distanceNm);
     if (!Number.isFinite(distance) || distance <= 0) return null;
@@ -14908,6 +14961,8 @@ function getOfflinePackMaxNativeZoomLimitForPacks(packs = activeOfflinePacks) {
             onlyOaci500000 ? OACI_500000_OFFLINE_MAX_NATIVE_ZOOM : OACI_OFFLINE_MAX_NATIVE_ZOOM
         );
     }
+    /* RUN v1.7 — carte La Réunion avec le zoom 14 installé : cran 0,5 NM natif (src/030, src/280). */
+    if (typeof isNpfRunZoom14Installed === 'function' && isNpfRunZoom14Installed(packList)) return NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM;
     return OFFLINE_HARD_MAX_NATIVE_ZOOM;
 }
 
@@ -30262,16 +30317,17 @@ function updateMapBingoDisplay() {
         return;
     }
 
-    const bingoBase = calculateBingo(CALCULATOR_DATA.distBaseFeu);
-    const bingoPelic = calculateBingo(CALCULATOR_DATA.distPelicFeu);
+    /* RUN v1.7 — BINGO 1 TOUJOURS FMEP (seul pélicandrome), BINGO 2 TOUJOURS FMEE (dégagement) : src/290. */
+    const bingo1 = calculateBingo(CALCULATOR_DATA.distBingo1Feu);
+    const bingo2 = calculateBingo(CALCULATOR_DATA.distBingo2Feu);
 
     const lftwEl = document.getElementById('map-bingo-lftw');
     const pelicEl = document.getElementById('map-bingo-pelic');
 
-    lftwEl.innerHTML = `<span class="bingo-title">BINGO BASE <span class="bingo-oaci">${selectedBaseOACI}</span>:</span> <b>${bingoBase} kg</b>`;
+    lftwEl.innerHTML = `<span class="bingo-title">BINGO 1 <span class="bingo-oaci">${NPF_RUN_BINGO1_OACI}</span>:</span> <b>${bingo1} kg</b>`;
 
-    if (bingoPelic !== 700 && selectedPelicanOACI) {
-        pelicEl.innerHTML = `<span class="bingo-title">BINGO <span class="bingo-oaci">${selectedPelicanOACI}</span>:</span> <b>${bingoPelic} kg</b>`;
+    if (bingo2 !== 700) {
+        pelicEl.innerHTML = `<span class="bingo-title">BINGO 2 <span class="bingo-oaci">${NPF_RUN_BINGO2_OACI}</span>:</span> <b>${bingo2} kg</b>`;
         pelicEl.style.display = 'inline-block';
     } else {
         pelicEl.style.display = 'none';
@@ -30993,7 +31049,7 @@ function updateBaseLabels() {
     if (previCsBaseLabel) previCsBaseLabel.textContent = 'Base';
     updateBaseOaciInputs();
     document.querySelectorAll('.base-bingo-label').forEach(el => {
-        el.textContent = 'BINGO BASE';
+        el.textContent = 'BINGO 1 FMEP';   /* RUN v1.7 — BINGO 1 toujours FMEP */
     });
     const deroutFuelMiniBaseLabel = document.getElementById('derout-fuel-mini-base-label');
     if (deroutFuelMiniBaseLabel) deroutFuelMiniBaseLabel.textContent = `Fuel mini 1 Lrg / BASE (${selectedBaseOACI}) :`;
@@ -37725,9 +37781,8 @@ const NPF_PELIC_NOTAMS_KEYWORDS_TO_FILTER = Object.freeze([
 const NPF_NOTAMS_COVERAGE_LOCAL_KEY = 'npfNotamsCoverageV1';
 
 function getNpfNotamsFallbackCoverage() {
-    return pelicanAirports
-        .map(airport => String(airport?.oaci || '').trim().toUpperCase())
-        .filter(Boolean);
+    /* RUN v1.7 — FMEP et FMEE (fichier NOTAM de la RUN). */
+    return [...NPF_RUN_NOTAMS_TERRAINS];
 }
 
 function getNpfNotamsCoverageFromPayload(payload) {
@@ -38110,31 +38165,17 @@ async function writeNpfBfgNotamsSharedPayload(payload) {
  * sinon mot de passe de session, comme FdS / GAAR). NAS éteint 23h50-06h00 :
  * aucun appel. Suivi d'une recherche : 5 min au plus, seulement pendant elle.
  */
-const NPF_SOFIA_NOTAMS_ALL_URL = 'https://grisonb.synology.me/briefing-api/get-sofia-notams-all.php';
+/* RUN v1.7 — NOTAM de FMEP et FMEE : fichier notams-run.json écrit sur le VPS par le service SÉPARÉ npf-run-sofia-notams
+ * (recherches SOFIA à 05:30, 06:30, 08:00, 10:00, 13:00 et 16:00 heure de La Réunion ; vps/npf-run-sofia-notams/). L'app
+ * le LIT seulement (aucune recherche demandée, ni au NAS ni au VPS) ; même schéma que le fichier complet de la TEST
+ * (bfg-sofia-notams-all-v1), même affichage. Plus aucun appel au NAS pour les NOTAM, plus de créneau « NAS éteint ». */
+const NPF_SOFIA_NOTAMS_ALL_URL = NPF_RUN_NOTAMS_URL;
 const NPF_SOFIA_NOTAMS_ALL_SCHEMA = 'bfg-sofia-notams-all-v1';
 const NPF_SOFIA_NOTAMS_FILE_TIMEOUT_MS = 30000;
-const NPF_SOFIA_NOTAMS_POLL_MS = 3000;                  // suivi avec session (réponse légère)
-const NPF_SOFIA_NOTAMS_REREAD_MS = 60000;               // suivi sans session : relecture du fichier
-const NPF_SOFIA_NOTAMS_FOLLOW_MAX_MS = 5 * 60 * 1000;   // suivi : 5 min au plus
 const NPF_SOFIA_NOTAMS_RECHECK_MS = 10 * 60 * 1000;     // copie du jour : mise à jour légère au plus toutes les 10 min
-const NPF_SOFIA_NOTAMS_SEARCH_STEPS = 24;
 const NPF_SOFIA_NOTAMS_LAST_CHECK_KEY = 'npfSofiaNotamsLastCheckV1';
 const NPF_SOFIA_NOTAMS_ALERT_DAY_KEY = 'npfSofiaNotamsAlertDayV1';
 let npfSofiaNotamsDailyPromise = null;
-
-function isNpfNasOffHours(now = new Date()) {
-    /* RUN — le NAS s'éteint de 23h50 à 06h00 à l'HEURE DE PARIS (02h50 à 09h00 à La Réunion en hiver) :
-     * ce calcul reste à l'heure de Paris (formatNpfNotamsParisDate est passé à l'heure de La Réunion). */
-    let parts = null;
-    try {
-        const date = now instanceof Date ? now : new Date(now);
-        parts = Object.fromEntries(new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-            .formatToParts(date).map(part => [part.type, part.value]));
-    } catch (_) { parts = null; }
-    if (!parts) return false;
-    const hm = (Number(parts.hour) || 0) * 100 + (Number(parts.minute) || 0);
-    return hm >= 2350 || hm < 600;
-}
 
 function isNpfSofiaNotamsPayload(payload) {
     return Boolean(payload && payload.version === 'bfgNpfNotamsV1' && payload.sourceKind === 'SOFIA');
@@ -38182,7 +38223,7 @@ function buildNpfNotamsPayloadFromSofiaAll(data) {
         : 'NOTAM SOFIA';
     return {
         version: 'bfgNpfNotamsV1',
-        source: 'NAS',
+        source: 'VPS',
         sourceKind: 'SOFIA',
         publishedAt: generatedAt,
         generatedAt,
@@ -38197,27 +38238,28 @@ function buildNpfNotamsPayloadFromSofiaAll(data) {
     };
 }
 
-/* Lecture du fichier complet (public). Renvoie { data, search } ; data = null
- * si le NAS n'a encore aucun fichier complet. Erreur réseau ou fichier illisible : exception. */
+/* RUN v1.7 — lecture du fichier NOTAM de la RUN sur le VPS (fichier statique). Renvoie { data, search: null } ;
+ * data = null si le fichier n'existe pas encore (404). Erreur réseau ou fichier illisible : exception. */
 async function fetchNpfSofiaNotamsAllFile(timeoutMs = NPF_SOFIA_NOTAMS_FILE_TIMEOUT_MS) {
-    const response = await fetchBriefingDocsNas(
-        `${NPF_SOFIA_NOTAMS_ALL_URL}?t=${Date.now()}`,
-        { method: 'GET', headers: { 'Accept': 'application/json' } },
-        timeoutMs
-    );
-    const body = await response.json().catch(() => null);
-    if (!body || typeof body !== 'object') throw new Error(`Réponse inattendue du NAS (${response.status}).`);
-    const search = body.search && typeof body.search === 'object' ? body.search : null;
-    if (body.ok !== true) {
-        if (body.error === 'absent') return { data: null, search };
-        throw new Error(body.message || body.error || `Fichier NOTAM SOFIA illisible (${response.status}).`);
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let response;
+    try {
+        response = await fetch(`${NPF_SOFIA_NOTAMS_ALL_URL}?t=${Date.now()}`, {
+            method: 'GET', cache: 'no-store', credentials: 'omit', headers: { 'Accept': 'application/json' },
+            ...(controller ? { signal: controller.signal } : {})
+        });
+    } finally {
+        if (timer) clearTimeout(timer);
     }
-    const data = body.data;
+    if (response.status === 404) return { data: null, search: null };
+    if (!response.ok) throw new Error(`Fichier NOTAM du serveur indisponible (${response.status}).`);
+    const data = await response.json().catch(() => null);
     if (!data || data.schema !== NPF_SOFIA_NOTAMS_ALL_SCHEMA || !Array.isArray(data.airports)
         || !Number.isFinite(Date.parse(String(data.generatedAt || '')))) {
         throw new Error('Fichier NOTAM SOFIA illisible.');
     }
-    return { data, search };
+    return { data, search: null };
 }
 
 /* Enregistre le fichier sur cet iPad s'il est plus récent que la copie locale
@@ -38255,7 +38297,7 @@ async function fetchAndStoreNpfSofiaNotams(timeoutMs) {
  * v17.59 — lit désormais le fichier SOFIA complet ; ne lance aucune recherche. */
 async function syncNpfBfgNotamsFromNas(options = {}) {
     if (npfBfgNotamsSyncPromise) return npfBfgNotamsSyncPromise;
-    if (!navigator.onLine || isNpfNasOffHours()) return false;
+    if (!navigator.onLine) return false;
 
     npfBfgNotamsSyncPromise = (async () => {
         const result = await fetchAndStoreNpfSofiaNotams(Number(options.timeoutMs) || NPF_SOFIA_NOTAMS_FILE_TIMEOUT_MS);
@@ -38643,7 +38685,7 @@ async function openNpfPelicNotams(oaci) {
         if (source) source.textContent = 'NOTAM SOFIA';
         if (status) {
             status.textContent = navigator.onLine
-                ? 'Aucun NOTAM SOFIA sur cet iPad ni sur le NAS. Utiliser « Rafraîchir les NOTAM » (bouton Cartes).'
+                ? 'Aucun NOTAM SOFIA sur cet iPad ni sur le serveur. Utiliser « Relire les NOTAM » (bouton Cartes).'
                 : 'Aucun NOTAM SOFIA sur cet iPad (hors ligne).';
             status.classList.add('pelic-notams-modal-status-warning');
         }
@@ -38821,8 +38863,9 @@ async function displayNpfNotamsLocalStatus() {
     const source = String(payload?.notamsAutoPdfStatus?.timestampText || '').trim() || 'NOTAM';
     const staleText = getNpfNotamsStaleWarningText(payload);
     const coverageCount = getNpfNotamsCoverageFromPayload(payload).length;
+    const derniere = getNpfRunNotamsDerniereRechercheTexte(payload);
     setNpfNotamsRefreshStatus(
-        `Copie locale : ${source} — ${coverageCount} terrain(s) couvert(s).${staleText ? ` ${staleText}.` : ''}`,
+        `Copie locale : ${derniere || source} — ${coverageCount} terrain(s) couvert(s).${staleText ? ` ${staleText}.` : ''}`,
         { notamsIso: getNpfNotamsSourceIso(payload) }
     );
 }
@@ -38877,89 +38920,8 @@ function npfConfirmInApp(message) {
     });
 }
 
-/* Lancement (ou rejoint) d'une recherche commune. Renvoie la réponse du NAS,
- * { unauthorized: true } sans session valide ; erreur : exception. */
-async function requestNpfSofiaNotamsSearch(session, mode) {
-    const response = await fetchBriefingDocsNas(
-        `${NPF_BRIEFING_DOCS_API_URL}?action=sofia-notams-request&t=${Date.now()}`,
-        {
-            method: 'POST',
-            headers: { ...briefingDocsAuthHeaders(session), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: mode === 'first-connection' ? 'first-connection' : 'manual' })
-        },
-        NPF_NOTAMS_API_TIMEOUT_MS
-    );
-    if (response.status === 401) return { unauthorized: true };
-    const payload = await response.json().catch(() => null);
-    if (!payload || payload.ok !== true) {
-        throw new Error(payload?.message || payload?.error || `Réponse inattendue du NAS (${response.status}).`);
-    }
-    return payload;
-}
-
-async function requestNpfSofiaNotamsStatus(session, requestId) {
-    const response = await fetchBriefingDocsNas(
-        `${NPF_BRIEFING_DOCS_API_URL}?action=sofia-notams-status&requestId=${encodeURIComponent(requestId)}&t=${Date.now()}`,
-        { method: 'GET', headers: briefingDocsAuthHeaders(session) },
-        NPF_NOTAMS_API_TIMEOUT_MS
-    );
-    if (response.status === 401) return { unauthorized: true };
-    return await response.json().catch(() => null);
-}
-
 function npfSofiaNotamsWait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/* Suivi d'une recherche jusqu'au fichier complet, 5 min au plus.
- * Avec session et identifiant : état léger toutes les 3 s. Sinon : relecture du
- * fichier public toutes les 60 s. Renvoie { kind: 'ready' | 'error' | 'timeout'
- * | 'offline' | 'ended', message }. Le fichier « ready » est déjà enregistré. */
-async function followNpfSofiaNotamsSearch(session, initial, onProgress = null) {
-    const startedAt = Date.now();
-    const requestId = String(initial?.requestId || '');
-    let useStatus = Boolean(session && requestId);
-    if (initial?.status === 'success' && (initial.reused === true || initial.today === true)) {
-        await fetchAndStoreNpfSofiaNotams();
-        return { kind: 'ready' };
-    }
-    while (Date.now() - startedAt < NPF_SOFIA_NOTAMS_FOLLOW_MAX_MS) {
-        if (!navigator.onLine) return { kind: 'offline' };
-        if (isNpfNasOffHours()) return { kind: 'ended' };
-        if (useStatus) {
-            await npfSofiaNotamsWait(NPF_SOFIA_NOTAMS_POLL_MS);
-            let state = null;
-            try { state = await requestNpfSofiaNotamsStatus(session, requestId); } catch (_) { continue; }
-            if (!state || state.unauthorized || state.ok !== true) {
-                if (state && !state.unauthorized && state.error !== 'unknown_request') continue;
-                useStatus = false;          // session perdue ou demande remplacée : relecture du fichier
-                continue;
-            }
-            const full = state.full && typeof state.full === 'object' ? state.full : {};
-            if (typeof onProgress === 'function') {
-                // v17.60 — avancement en demandes SOFIA : partie BFG (premier groupe)
-                // puis fichier complet ; total annoncé par le NAS (3 groupes sinon).
-                const total = Number(full.steps) > 0 ? Number(full.steps)
-                    : (Number(state.steps) > 0 ? Number(state.steps) * 3 : NPF_SOFIA_NOTAMS_SEARCH_STEPS);
-                onProgress(Number(full.step) > 0 ? Number(full.step) : Number(state.step) || 0, total);
-            }
-            if (full.status === 'success') {
-                await fetchAndStoreNpfSofiaNotams();
-                return { kind: 'ready' };
-            }
-            if (full.status === 'error' || state.status === 'error') {
-                return { kind: 'error', message: String(full.message || state.message || '').trim() };
-            }
-        } else {
-            await npfSofiaNotamsWait(NPF_SOFIA_NOTAMS_REREAD_MS);
-            let result = null;
-            try { result = await fetchAndStoreNpfSofiaNotams(); } catch (_) { continue; }
-            const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-            if (isNpfSofiaNotamsPayload(payload) && isNpfPelicNotamsPayloadCurrentToday(payload)) return { kind: 'ready' };
-            if (!result?.search?.active) return { kind: 'ended' };
-        }
-    }
-    return { kind: 'timeout' };
 }
 
 /* NOTAM SOFIA lus ou mis à jour : la fenêtre NOTAMS ouverte et l'état de
@@ -38999,12 +38961,12 @@ async function waitNpfMapIdleForNotams(maxMs = 30000) {
  * retour au premier plan, retour du réseau) : au plus une lecture toutes les
  * 10 min du fichier complet du NAS ; enregistré seulement s'il est plus récent
  * que la copie de l'iPad (ex. passage de 10:00). Jamais de recherche SOFIA,
- * jamais de mot de passe, rien entre 23h50 et 06h00. Échec réseau : silencieux,
+ * jamais de mot de passe (RUN v1.7 : fichier du VPS, à toute heure). Échec réseau : silencieux,
  * la copie de l'iPad est gardée. Lecture et enregistrement hors des gestes sur
  * la carte. Le NAS n'a pas d'état léger public : le « contrôle » lit le fichier
  * (conversion et écriture seulement s'il est plus récent). */
 async function lightUpdateNpfSofiaNotams(reason = '') {
-    if (!navigator.onLine || isNpfNasOffHours() || npfNotamsManualRefreshInProgress) return false;
+    if (!navigator.onLine || npfNotamsManualRefreshInProgress) return false;
     let lastCheck = 0;
     try { lastCheck = Number(localStorage.getItem(NPF_SOFIA_NOTAMS_LAST_CHECK_KEY) || 0); } catch (_) {}
     if (Number.isFinite(lastCheck) && Date.now() - lastCheck < NPF_SOFIA_NOTAMS_RECHECK_MS) return false;
@@ -39030,50 +38992,25 @@ async function lightUpdateNpfSofiaNotams(reason = '') {
     return stored;
 }
 
-/* Première connexion du jour (démarrage, retour au premier plan, retour du
- * réseau) : fichier complet du jour -> rien d'autre ; recherche en cours (BFG,
- * passage planifié…) -> attente de son résultat ; sinon recherche commune
- * « first-connection », seulement avec une session obtenue sans mot de passe
- * (session en cours ou pont BFG). Jamais de mot de passe demandé ici. */
+/* RUN v1.7 — première ouverture du jour (démarrage, retour au premier plan, retour du réseau) : copie du jour déjà sur
+ * l'iPad -> mise à jour légère (10 min au plus) ; sinon lecture du fichier du VPS. Aucune recherche n'est demandée
+ * (décision de Bastien : les recherches sont faites par la minuterie du VPS). Pas du jour après lecture : alerte, une
+ * fois par jour. */
 async function ensureNpfSofiaNotamsOfToday(reason = '') {
     if (npfSofiaNotamsDailyPromise) return npfSofiaNotamsDailyPromise;
     npfSofiaNotamsDailyPromise = (async () => {
-        if (!navigator.onLine || isNpfNasOffHours() || npfNotamsManualRefreshInProgress) return false;
+        if (!navigator.onLine || npfNotamsManualRefreshInProgress) return false;
         const local = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-        const localToday = isNpfSofiaNotamsPayload(local) && isNpfPelicNotamsPayloadCurrentToday(local);
-        // Copie du jour déjà sur l'iPad : mise à jour légère seulement (jamais de recherche).
-        if (localToday) return await lightUpdateNpfSofiaNotams(reason);
-
+        if (isNpfSofiaNotamsPayload(local) && isNpfPelicNotamsPayloadCurrentToday(local)) return await lightUpdateNpfSofiaNotams(reason);
         let result;
         try {
             result = await fetchAndStoreNpfSofiaNotams();
         } catch (error) {
-            console.info('[NPF-Q400 NOTAM] NAS injoignable :', error?.message || error);
+            console.info('[NPF-Q400 NOTAM] Serveur NOTAM injoignable :', error?.message || error);
             return false;
         }
-        let payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-        if (isNpfSofiaNotamsPayload(payload) && isNpfPelicNotamsPayloadCurrentToday(payload)) {
-            if (result.stored) await refreshOpenNpfNotamsViews();
-            return true;
-        }
-
-        console.info(`[NPF-Q400 NOTAM] ${reason} : aucun fichier NOTAM SOFIA du jour, recherche ${result.search?.active ? 'en cours' : 'à lancer'}.`);
-        if (result.search?.active) {
-            await followNpfSofiaNotamsSearch(getStoredBriefingDocsSession(), { requestId: result.search.requestId || '' });
-        } else {
-            let session = getStoredBriefingDocsSession();
-            if (!session) session = await tryAuthorizeBriefingDocsFromBfgBridge({ silent: true }).catch(() => null);
-            if (session) {
-                try {
-                    const answer = await requestNpfSofiaNotamsSearch(session, 'first-connection');
-                    if (!answer.unauthorized) await followNpfSofiaNotamsSearch(getStoredBriefingDocsSession(), answer);
-                } catch (error) {
-                    console.info('[NPF-Q400 NOTAM] Recherche du jour impossible :', error?.message || error);
-                }
-            }
-        }
-        payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-        await refreshOpenNpfNotamsViews();
+        const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
+        if (result.stored) await refreshOpenNpfNotamsViews();
         const ok = isNpfSofiaNotamsPayload(payload) && isNpfPelicNotamsPayloadCurrentToday(payload);
         if (!ok) showNpfSofiaNotamsAlertOncePerDay(payload);
         return ok;
@@ -39088,87 +39025,49 @@ async function ensureNpfSofiaNotamsOfToday(reason = '') {
     }
 }
 
-/* Bouton « Rafraîchir les NOTAM » : nouvelle recherche SOFIA complète (114
- * terrains), après confirmation. options.confirmed : retour de la fenêtre mot de passe. */
+/* RUN v1.7 — « dernière recherche réussie » : heure (La Réunion) du fichier NOTAM affiché. */
+function getNpfRunNotamsDerniereRechercheTexte(payload) {
+    const iso = getNpfNotamsSourceIso(payload);
+    const parts = iso ? formatNpfNotamsParisDate(iso, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : null;
+    return parts ? `Dernière recherche SOFIA réussie : ${parts.day}/${parts.month}/${parts.year} à ${parts.hour}:${parts.minute} (heure de La Réunion)` : '';
+}
+
+/* RUN v1.7 — bouton « Relire les NOTAM » : relit le fichier NOTAM du VPS (aucune recherche SOFIA demandée, aucun mot
+ * de passe) et affiche l'heure de la dernière recherche réussie. */
 async function refreshNpfNotamsFromNasManually(options = {}) {
     if (npfNotamsManualRefreshInProgress) return;
     if (!navigator.onLine) {
-        setNpfNotamsRefreshStatus('Hors ligne : recherche NOTAM impossible. Les NOTAM de cet iPad restent affichés.', { error: true });
+        setNpfNotamsRefreshStatus('Hors ligne : lecture des NOTAM impossible. Les NOTAM de cet iPad restent affichés.', { error: true });
         return;
     }
-    if (isNpfNasOffHours()) {
-        setNpfNotamsRefreshStatus('NAS éteint de 23h50 à 06h00 : recherche NOTAM impossible. Les NOTAM de cet iPad restent affichés.', { error: true });
-        return;
-    }
-    if (options.confirmed !== true) {
-        const confirmed = await npfConfirmInApp('La recherche complète des NOTAM sur SOFIA prend environ 1 minute.');
-        if (!confirmed) return;
-    }
-
     const button = document.getElementById('notams-refresh-button');
     npfNotamsManualRefreshInProgress = true;
     if (button) button.disabled = true;
     setNpfNotamsRefreshProgress(0, 0);
-
     try {
-        let session = getStoredBriefingDocsSession();
-        if (!session) session = await tryAuthorizeBriefingDocsFromBfgBridge({ silent: true }).catch(() => null);
-        if (!session) {
-            handleNpfNotamsAuthorizationMissing();
-            return;
-        }
-
         setNpfNotamsRefreshBusy(true);
-        setNpfNotamsRefreshStatus('Recherche des NOTAM sur SOFIA : demande envoyée…');
-        const answer = await requestNpfSofiaNotamsSearch(session, 'manual');
-        if (answer.unauthorized) {
-            setNpfNotamsRefreshBusy(false);
-            handleNpfNotamsAuthorizationMissing();
-            return;
-        }
-        setNpfNotamsRefreshStatus('Recherche des NOTAM sur SOFIA en cours (environ 1 minute)…');
-        const outcome = await followNpfSofiaNotamsSearch(session, answer, (step, total) => {
-            setNpfNotamsRefreshProgress(step, total || NPF_SOFIA_NOTAMS_SEARCH_STEPS);
-        });
+        setNpfNotamsRefreshStatus('Lecture des NOTAM de FMEP et FMEE sur le serveur…');
+        const result = await fetchAndStoreNpfSofiaNotams();
         setNpfNotamsRefreshBusy(false);
-        if (outcome.kind === 'ready') {
-            setNpfNotamsRefreshProgressDone();
-            const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
-            const source = String(payload?.notamsAutoPdfStatus?.timestampText || 'NOTAM SOFIA');
-            setNpfNotamsRefreshStatus(`${source} : enregistrés sur cet iPad pour le hors ligne.`, { notamsIso: getNpfNotamsSourceIso(payload) });
-            await refreshOpenNpfNotamsViews();
+        const payload = await readNpfSofiaNotamsLocalPayload().catch(() => null);
+        if (!result.hasFile && !payload) {
+            setNpfNotamsRefreshStatus('Aucun fichier NOTAM sur le serveur pour l’instant.', { error: true });
             return;
         }
-        setNpfNotamsRefreshProgress(0, 0);
-        if (outcome.kind === 'error') {
-            setNpfNotamsRefreshStatus(
-                `Recherche des NOTAM sur SOFIA impossible${outcome.message ? ` : ${outcome.message}` : ''}. Les NOTAM de cet iPad restent affichés.`,
-                { error: true }
-            );
-            return;
-        }
-        if (outcome.kind === 'offline') {
-            setNpfNotamsRefreshStatus('Connexion perdue : suivi de la recherche interrompu. Les NOTAM de cet iPad restent affichés.', { error: true });
-            return;
-        }
-        setNpfNotamsRefreshStatus('La recherche n’a pas abouti en 5 min. Les NOTAM de cet iPad restent affichés ; réessaie dans quelques minutes.', { error: true });
+        const derniere = getNpfRunNotamsDerniereRechercheTexte(payload);
+        setNpfNotamsRefreshStatus(`${derniere || 'NOTAM SOFIA'} — enregistrés sur cet iPad pour le hors ligne.`, { notamsIso: getNpfNotamsSourceIso(payload) });
+        await refreshOpenNpfNotamsViews();
     } catch (error) {
         setNpfNotamsRefreshBusy(false);
-        setNpfNotamsRefreshProgress(0, 0);
-        if (!getStoredBriefingDocsSession()) {
-            handleNpfNotamsAuthorizationMissing();
-        } else if (error?.name === 'AbortError') {
-            setNpfNotamsRefreshStatus('Le NAS ne répond pas (délai dépassé). Les NOTAM de cet iPad restent affichés.', { error: true });
-        } else {
-            setNpfNotamsRefreshStatus(`Recherche des NOTAM sur SOFIA impossible : ${error?.message || String(error)}. Les NOTAM de cet iPad restent affichés.`, { error: true });
-        }
+        setNpfNotamsRefreshStatus(error?.name === 'AbortError'
+            ? 'Le serveur ne répond pas (délai dépassé). Les NOTAM de cet iPad restent affichés.'
+            : `Lecture des NOTAM impossible : ${error?.message || String(error)}. Les NOTAM de cet iPad restent affichés.`, { error: true });
     } finally {
         setNpfNotamsRefreshBusy(false);
         npfNotamsManualRefreshInProgress = false;
         if (button) button.disabled = false;
     }
 }
-
 
 
 /* ========================================================================== 
@@ -39252,12 +39151,18 @@ function getNpfDisplayedAirportRecordsForLabels() {
         const oaci = String(airport?.oaci || '').trim().toUpperCase();
         const lat = Number(airport?.lat);
         const lon = Number(airport?.lon);
-        if (!/^[A-Z]{4}$/.test(oaci) || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        /* RUN v1.7 — bases ULM (code interne à 4 chiffres) acceptées comme les autres terrains */
+        if (!(/^[A-Z]{4}$/.test(oaci) || (airport?.ulm && /^[0-9]{4}$/.test(oaci))) || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
         if (!byOaci.has(oaci)) byOaci.set(oaci, { ...airport, oaci, lat, lon });
     };
     (pelicanAirports || []).forEach(add);
     (otherAirports || []).forEach(add);
     (additionalAerodromes || []).forEach(add);
+    (typeof NPF_RUN_HELISTATIONS !== 'undefined' ? NPF_RUN_HELISTATIONS : []).forEach(add);   /* RUN v1.7 */
+    /* RUN v1.7 — sites de vol libre : étiquette « Déco … » / « Atterro … », sans code ni fréquence */
+    (typeof NPF_RUN_VOL_LIBRE !== 'undefined' ? NPF_RUN_VOL_LIBRE : []).forEach(site => {
+        if (!byOaci.has(site.code)) byOaci.set(site.code, { ...site, oaci: site.code, volLibre: true });
+    });
     return [...byOaci.values()];
 }
 
@@ -40071,12 +39976,15 @@ function refreshAirportOperationalLabels() {
     getNpfDisplayedAirportRecordsForLabels().forEach(airport => {
         const latlng = L.latLng(airport.lat, airport.lon);
         if (!bounds.contains(latlng)) return;
-        const freq = getAirportOperationalFrequency(airport.oaci);
+        /* RUN v1.7 — base ULM : fréquence BASULM (A/A) et code BASULM affiché */
+        const freq = getAirportOperationalFrequency(airport.oaci)
+            || (airport.ulm && airport.frequence ? { type: 'A/A', value: airport.frequence } : null);
         const airportName = String(airport.name || '').trim();
         const airportOaci = String(airport.oaci || '').trim().toUpperCase();
-        const airportDisplayName = airportName
-            ? `${airportName} (${airportOaci})`
-            : airportOaci;
+        const airportCode = String(airport.codeAffiche || airportOaci);
+        const airportDisplayName = airport.volLibre
+            ? `${airport.t === 'A' ? 'Atterro' : 'Déco'} ${airportName}`
+            : (airportName ? `${airportName} (${airportCode})` : airportCode);
         const frequencyHtml = freq
             ? (
                 Array.isArray(freq.groups) && freq.groups.length
@@ -40315,6 +40223,21 @@ function registerNpfAirportViewMarker(marker, airport) {
  * Leur zone tactile suit la même règle.
  */
 const NPF_NON_PELIC_AIRPORT_MIN_ZOOM = 7;
+/* RUN v1.7 — symbole des hélistations : rond blanc, bord vert foncé, H vert (aucun emoji, aucune image). */
+/* RUN v1.7 — sites de vol libre (symbole validé par Bastien) : losange de 26 px, voile de parapente ; décollage = losange
+ * ORANGE plein, voile blanche ; atterrissage = losange BLANC bordé d'orange, voile orange. */
+function buildNpfVolLibreSymbolSvg(decollage) {
+    const c = decollage ? '#ffffff' : '#f57c00';
+    const voile = `<path d="M6.2 12.4 Q13 4.6 19.8 12.4" stroke="${c}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`
+        + `<path d="M7.3 12.2 L13 17.6 L18.7 12.2" stroke="${c}" stroke-width="1.4" fill="none"/><circle cx="13" cy="18.2" r="1.9" fill="${c}"/>`;
+    const losange = decollage
+        ? '<path d="M13 1.2 L24.8 13 L13 24.8 L1.2 13 Z" fill="#f57c00" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>'
+        : '<path d="M13 1.9 L24.1 13 L13 24.1 L1.9 13 Z" fill="#ffffff" stroke="#f57c00" stroke-width="1.7" stroke-linejoin="round"/>';
+    return `<svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true">${losange}${voile}</svg>`;
+}
+const NPF_HELISTATION_SYMBOL_SVG = '<svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">'
+    + '<circle cx="11" cy="11" r="9.6" fill="#ffffff" stroke="#0b6e4f" stroke-width="2.4"/>'
+    + '<path d="M7.4 5.9v10.2M14.6 5.9v10.2M7.4 11h7.2" stroke="#0b6e4f" stroke-width="2.3" stroke-linecap="round" fill="none"/></svg>';
 
 function registerNpfAirportScaleLimited(layer, airport) {
     if (!layer || !airport) return layer;
@@ -40363,8 +40286,49 @@ function drawPermanentAirportMarkers() {
             zIndexOffset: 1700
         }), airport);
 
-        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${escapeHtml(airport.oaci)}</b><br>${escapeHtml(airport.name)}${buildVacButtonHtml(airport.oaci)}${buildAirportAddWpButtonHtml(airport.oaci)}</div>`;
+        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${escapeHtml(airport.codeAffiche || airport.oaci)}</b><br>${escapeHtml(airport.name)}${buildVacButtonHtml(airport.oaci)}${buildAirportAddWpButtonHtml(airport.oaci)}</div>`;
         registerNpfAirportScaleLimited(addAirportTouchHitbox(airport, popupHtml), airport);
+    });
+
+    /* RUN v1.7 — hélistations : rond blanc cerclé de vert avec un H (SVG dessiné par l'app), mêmes règles d'affichage
+     * et de fiche que les terrains non utilisables pour le Dash ; nom en étiquette à 2 NM et moins (étiquettes des
+     * terrains). */
+    (typeof NPF_RUN_HELISTATIONS !== 'undefined' ? NPF_RUN_HELISTATIONS : []).forEach(airport => {
+        registerNpfAirportScaleLimited(L.marker([airport.lat, airport.lon], {
+            icon: L.divIcon({
+                className: 'npf-helistation-icon',
+                html: NPF_HELISTATION_SYMBOL_SVG,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11],
+                popupAnchor: [0, -11]
+            }),
+            interactive: false,
+            keyboard: false,
+            zIndexOffset: 1690
+        }), airport);
+        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${escapeHtml(airport.oaci)}</b><br>${escapeHtml(airport.name)}<br>Hélistation${buildVacButtonHtml(airport.oaci)}${buildAirportAddWpButtonHtml(airport.oaci)}</div>`;
+        registerNpfAirportScaleLimited(addAirportTouchHitbox(airport, popupHtml), airport);
+    });
+
+    /* RUN v1.7 — sites de vol libre : losange (buildNpfVolLibreSymbolSvg), mêmes règles d'affichage que les terrains non
+     * utilisables pour le Dash ; fiche : type, nom, altitude, source. Aucun bouton (ni BASE, ni PÉLIC, ni WP). */
+    (typeof NPF_RUN_VOL_LIBRE !== 'undefined' ? NPF_RUN_VOL_LIBRE : []).forEach(site => {
+        const entree = { ...site, oaci: site.code };
+        registerNpfAirportScaleLimited(L.marker([site.lat, site.lon], {
+            icon: L.divIcon({
+                className: 'npf-vol-libre-icon',
+                html: buildNpfVolLibreSymbolSvg(site.t === 'D'),
+                iconSize: [26, 26],
+                iconAnchor: [13, 13],
+                popupAnchor: [0, -13]
+            }),
+            interactive: false,
+            keyboard: false,
+            zIndexOffset: 1680
+        }), entree);
+        const altitude = Number.isFinite(Number(site.alt)) ? `${site.alt} m / ${Math.round(site.alt / 0.3048).toLocaleString('fr-FR')} ft` : '';
+        const popupHtml = `<div class="airport-popup additional-aerodrome-popup"><b>${site.t === 'A' ? 'Atterrissage' : 'Décollage'} vol libre</b><br>${escapeHtml(site.name)}${altitude ? `<br>${altitude}` : ''}<br><span class="npf-vol-libre-source">© OpenStreetMap (ODbL), d'après la FFVL</span></div>`;
+        registerNpfAirportScaleLimited(addAirportTouchHitbox(entree, popupHtml), entree);
     });
 
     otherAirports.forEach(airport => {
@@ -45346,7 +45310,7 @@ function saveGaarCircuits() { localStorage.setItem('gaarCircuits', JSON.stringif
 
 function updateCalculatorData() {
     if (!currentCommune) {
-        CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0 };
+        CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0, distBingo1Feu: 0, distBingo2Feu: 0 };
     } else {
         const baseAirport = getAirportByOaci(selectedBaseOACI);
         const selectedPelican = getSelectedPelicanAirport();
@@ -45359,6 +45323,11 @@ function updateCalculatorData() {
         CALCULATOR_DATA.distPelicFeu = Math.round(distPelicFeu);
         CALCULATOR_DATA.csFeu = csFeu;
         CALCULATOR_DATA.distGpsFeu = Math.round(distGpsFeu);
+        /* RUN v1.7 — distances des BINGO 1 (FMEP) et 2 (FMEE), toujours ces terrains (src/290). */
+        const bingo1Airport = getAirportByOaci(NPF_RUN_BINGO1_OACI);
+        const bingo2Airport = getAirportByOaci(NPF_RUN_BINGO2_OACI);
+        CALCULATOR_DATA.distBingo1Feu = bingo1Airport ? Math.round(calculateDistanceInNm(bingo1Airport.lat, bingo1Airport.lon, feuLat, feuLon)) : 0;
+        CALCULATOR_DATA.distBingo2Feu = bingo2Airport ? Math.round(calculateDistanceInNm(bingo2Airport.lat, bingo2Airport.lon, feuLat, feuLon)) : 0;
     }
     if (typeof masterRecalculate === 'function') { masterRecalculate(); }
 }
@@ -49775,6 +49744,8 @@ async function runNpfServerMapDownload(mapId) {
             origin: 'serveur',
             versionCarte: manifest.versionCarte || null,
             serverCreeLe: manifest.creeLe,
+            /* RUN v1.7 — zoom maximal de la carte (RUN-6 : 14) ; absent = 13 */
+            zoomMax: Number(manifest.zoomMax) || 13,
             /* v17.80 — fond sans noms : le calque des noms est affiché par-dessus. */
             calqueNoms: cfg.avecNoms ? true : undefined
         });
@@ -49876,6 +49847,25 @@ function getNpfInstalledV11Pack() {
     return getInstalledMapPacksSafe().find(pack => pack && pack.name === cfg.packName && pack.calqueNoms === true && pack.origin === 'serveur') || null;
 }
 
+/* RUN v1.7 — la carte La Réunion installée contient-elle le zoom 14 (manifeste RUN-6 « zoomMax » 14, recopié dans la
+ * fiche de la carte au téléchargement complet ou à la mise à jour) ? packs : carte(s) affichée(s), par défaut la carte. */
+function isNpfRunZoom14Installed(packs = null) {
+    try {
+        const cfg = getNpfServerSection('npf-q400');
+        if (Array.isArray(packs) && packs.length && !packs.includes(cfg.packName)) return false;
+        const pack = getNpfInstalledV11Pack();
+        return !!pack && Number(pack.zoomMax) >= NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM;
+    } catch (_) {
+        return false;
+    }
+}
+
+/* RUN v1.7 — couches connues d'un morceau de carte (fond + calques) : un morceau NOUVEAU de n'importe laquelle est
+ * accepté par la mise à jour partielle (v1.5 : seulement îlets / relief ; v1.7 : zoom 14 du fond et des noms aussi). */
+function isNpfCarteCoucheConnue(couche) {
+    return couche === 'fond' || isNpfCalqueCouche(couche);
+}
+
 function readNpfCarteMajState() {
     const state = readNpfJsonStorage(NPF_CARTE_MAJ_STATE_KEY, null);
     return state && typeof state === 'object' && state.creeLe ? state : null;
@@ -49919,7 +49909,8 @@ function computeNpfCarteMajPlan(manifest) {
             : { etat: 'complet', raison: 'liste des morceaux installés inconnue' };
     }
     /* RUN v1.5 — le manifeste peut AJOUTER des morceaux à la fin (« nouveau » : calques îlets / relief) : ils sont
-     * simplement téléchargés ; les morceaux déjà installés suivent la règle v17.88. */
+     * simplement téléchargés ; les morceaux déjà installés suivent la règle v17.88.
+     * RUN v1.7 — morceaux nouveaux du fond et des noms aussi (zoom 14). */
     if (ref.format !== manifest.format || ref.morceaux.length > manifest.morceaux.length) {
         return { etat: 'complet', raison: 'liste des morceaux différente' };
     }
@@ -49927,7 +49918,7 @@ function computeNpfCarteMajPlan(manifest) {
     for (let index = 0; index < manifest.morceaux.length; index += 1) {
         const installed = ref.morceaux[index];
         const chunk = manifest.morceaux[index];
-        if (!installed && chunk && chunk.nouveau === true && isNpfCalqueCouche(chunk.couche)) {
+        if (!installed && chunk && chunk.nouveau === true && isNpfCarteCoucheConnue(chunk.couche)) {
             indices.push(index);
             continue;
         }
@@ -50105,7 +50096,7 @@ async function runNpfCarteMaj() {
             writeNpfCarteMorceaux(ref);
         }
         const installed = getInstalledMapPacksSafe().map(item => (item && item.name === cfg.packName)
-            ? { ...item, sizeBytes: Number(manifest.totalOctets) || item.sizeBytes, serverCreeLe: manifest.creeLe, versionCarte: manifest.versionCarte || item.versionCarte, date: new Date().toLocaleDateString() }
+            ? { ...item, sizeBytes: Number(manifest.totalOctets) || item.sizeBytes, serverCreeLe: manifest.creeLe, versionCarte: manifest.versionCarte || item.versionCarte, zoomMax: Number(manifest.zoomMax) || 13, date: new Date().toLocaleDateString() }
             : item);
         localStorage.setItem('installedMapPacks', JSON.stringify(installed));
         recordNpfCalqueNomsInstalled(manifest, countNoms);
@@ -50475,7 +50466,8 @@ function buildNpfCalqueNomsLayer(info, calque = null) {
         minZoom: calque ? calque.minZoom : NPF_CALQUE_NOMS_MIN_ZOOM,
         /* RUN v1.5 — même pane : noms de base au-dessus, puis îlets, puis relief (aucun recouvrement : placement commun). */
         zIndex: calque ? calque.zIndex : 3,
-        maxNativeZoom: NPF_CALQUE_NOMS_NATIVE_MAX_ZOOM,
+        /* RUN v1.7 — noms, îlets et relief ont aussi le zoom 14 dans la carte RUN-6 */
+        maxNativeZoom: (typeof isNpfRunZoom14Installed === 'function' && isNpfRunZoom14Installed()) ? NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM : NPF_CALQUE_NOMS_NATIVE_MAX_ZOOM,
         maxZoom: GLOBAL_MAX_ZOOM,
         keepBuffer: 1,
         updateWhenZooming: false,
@@ -50850,11 +50842,20 @@ function appendNpfCalqueNomsDiagLines(lines) {
 // =========================================================================
 // LOGIQUE DU CALCULATEUR DE MISSION
 // =========================================================================
-let CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0 };
+let CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0, distBingo1Feu: 0, distBingo2Feu: 0 };
+/* RUN v1.7 — BINGO affichés (décision de Bastien du 25/10/2026) : BINGO 1 TOUJOURS sur FMEP (seul pélicandrome), BINGO 2
+ * TOUJOURS sur FMEE (terrain de dégagement), quels que soient la base et le pélicandrome choisis. Même calcul que la TEST
+ * (calculateBingo : 700 kg + 5 kg/Nm), sur la distance feu -> terrain arrondie au Nm (src/270 updateCalculatorData). Les
+ * calculs de largages (FUEL RETOUR BASE / PÉLIC) et de fuel mini gardent la base et le pélicandrome, comme la TEST. */
+function renderNpfRunBingoValue(element, oaci, distanceNm) {
+    if (!element) return;
+    const bingo = calculateBingo(distanceNm);
+    element.innerHTML = bingo === 700 ? '-- kg' : `${oaci} / ${distanceNm} Nm /&nbsp;<b>${bingo} kg</b>`;
+}
 const calculateBingo = (dist) => (dist <= 70) ? (dist * 5) + 700 : (dist * 4) + 700;
 const calculateFuelToGo = (dist) => (dist <= 70) ? (dist * 5) : (dist * 4);
 const calculateConsoRotation = (dist) => { const effectiveDist = Math.max(dist, 10); return (effectiveDist <= 70) ? (effectiveDist * 10) + 250 : (effectiveDist * 8) + 250; };
-/* v17.89 — règle unique (src/050, calculateNpfOneWayTransitMinutes) : ≤ 70 Nm à 210 kt, > 70 Nm à 240 kt, jamais moins de 20 min. */
+/* RUN v1.7 — règle unique (src/050, calculateNpfOneWayTransitMinutes) : 200 kt pour toutes les distances. */
 const calculateTransitTime = (dist) => calculateNpfOneWayTransitMinutes(dist);
 
 /*
@@ -50863,7 +50864,7 @@ const calculateTransitTime = (dist) => calculateNpfOneWayTransitMinutes(dist);
  */
 const RETARDANT_LOADING_FORFAIT_MIN = 10;
 
-/* v17.89 — 20 min fixes + 2 × temps d'aller simple (règle unique, seuil 70 Nm), minimum de 10 Nm conservé. Avant :
+/* v17.89 — 20 min fixes + 2 × temps d'aller simple (règle unique ; RUN v1.7 : 200 kt), minimum de 10 Nm conservé. Avant :
  * 240 kt sur TOUTE la distance au-delà de 50 Nm (LFML 54 Nm = 47 min < LFLU 50 Nm = 49 min). */
 const calculateRotationTime = (dist) => {
     const effectiveDist = Math.max(dist, 10);
@@ -51358,10 +51359,9 @@ function updatePreviTab() {
 
     const bingoBase = calculateBingo(CALCULATOR_DATA.distBaseFeu);
     const bingoPelic = calculateBingo(CALCULATOR_DATA.distPelicFeu);
-    const bingoBaseDisplay = document.getElementById('previ-bingo-base');
-    if (bingoBase === 700) { bingoBaseDisplay.innerHTML = '-- kg'; } else { bingoBaseDisplay.innerHTML = `${selectedBaseOACI} / ${CALCULATOR_DATA.distBaseFeu} Nm /&nbsp;<b>${bingoBase} kg</b>`; }
-    const bingoPelicDisplay = document.getElementById('previ-bingo-pelic');
-    if (bingoPelic === 700 || !selectedPelicanOACI) { bingoPelicDisplay.innerHTML = '-- kg'; } else { bingoPelicDisplay.innerHTML = `${selectedPelicanOACI} / ${CALCULATOR_DATA.distPelicFeu} Nm /&nbsp;<b>${bingoPelic} kg</b>`; }
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE (renderNpfRunBingoValue, en tête du fichier). */
+    renderNpfRunBingoValue(document.getElementById('previ-bingo-base'), NPF_RUN_BINGO1_OACI, CALCULATOR_DATA.distBingo1Feu);
+    renderNpfRunBingoValue(document.getElementById('previ-bingo-pelic'), NPF_RUN_BINGO2_OACI, CALCULATOR_DATA.distBingo2Feu);
 
     const heureTO = parseTime(document.getElementById('previ-bloc-depart').querySelector('.display-input').value);
     const fuelDepart = parseNumeric(document.getElementById('previ-fuel-depart').querySelector('.display-input').value);
@@ -51380,7 +51380,7 @@ function updatePreviTab() {
     const heureSurFeu = heureTO !== null ? heureTO + previTempsAvantFeu : null;
 
     document.getElementById('duree-transit').textContent = formatTime(transitTime) || '--:--';
-    setHelp('duree-transit-help', `DURÉE TRANSIT BASE → FEU\n\nFormule : temps d'aller simple Base → Feu\n\nRègle vitesse :\n- distance ≤ 70 Nm : distance / 3,5 (210 kt)\n- distance > 70 Nm : distance / 4 (240 kt), jamais moins de 20 min (temps à 70 Nm)\n- exemples : 54 Nm = 15,4 min ; 80 Nm = 20 min ; 100 Nm = 25 min\n\nDistance Base → Feu : ${CALCULATOR_DATA.distBaseFeu} Nm\n\nCalcul : ${formatNpfOneWayTransitCalculation(CALCULATOR_DATA.distBaseFeu)} = ${formatTime(transitTime)} (${transitTime} min)`);
+    setHelp('duree-transit-help', `DURÉE TRANSIT BASE → FEU\n\nFormule : temps d'aller simple Base → Feu\n\nRègle vitesse : ${NPF_TRANSIT_RULE_TEXT}\n\nDistance Base → Feu : ${CALCULATOR_DATA.distBaseFeu} Nm\n\nCalcul : ${formatNpfOneWayTransitCalculation(CALCULATOR_DATA.distBaseFeu)} = ${formatTime(transitTime)} (${transitTime} min)`);
 
     document.getElementById('heure-sur-feu').textContent = formatTime(heureSurFeu) || '--:--';
     setHelp('heure-sur-feu-help', `HEURE SUR FEU — PRÉVI\n\nFormule : BLOC DÉPART + forfait plein retardant éventuel + durée transit Base → Feu\n\nBLOC DÉPART : ${formatTime(heureTO) || 'N/A'}\nRLT Départ : ${rltDepartMass !== null ? `${rltDepartMass} kg` : 'non renseigné'}\nForfait plein retardant : ${previForfaitRltMin} min\nDurée transit : ${formatTime(transitTime)} (${transitTime} min)\n\nCalcul : ${formatTime(heureTO) || 'N/A'} + ${previForfaitRltMin} min + ${formatTime(transitTime)} = ${formatTime(heureSurFeu) || 'N/A'}\n\n${firstTransitAlreadyLoaded ? 'Aucun forfait au premier transit : le champ RLT Départ de l’en-tête contient déjà une masse.' : `Le champ RLT Départ est vide : le forfait de ${RETARDANT_LOADING_FORFAIT_MIN} min est appliqué avant le premier transit.`}\nLes 10 min avant validation du largage restent appliquées séparément dans les limites CS/TMD/HDV.`);
@@ -51389,7 +51389,7 @@ function updatePreviTab() {
     setHelp('conso-aller-feu-help', `CONSO TRANSIT BASE → FEU\n\nFormule : Distance Base → Feu × Conso au Nm\n\nRègle consommation :\n- Distance ≤ 70 Nm : 5 kg/Nm\n- Distance > 70 Nm : 4 kg/Nm\n\nDistance Base → Feu : ${CALCULATOR_DATA.distBaseFeu} Nm\nConso retenue : ${CALCULATOR_DATA.distBaseFeu <= 70 ? 5 : 4} kg/Nm\n\nCalcul : ${CALCULATOR_DATA.distBaseFeu} × ${CALCULATOR_DATA.distBaseFeu <= 70 ? 5 : 4} = ${consoAller} kg`);
 
     document.getElementById('duree-rotation').textContent = rotationTime === 20 ? '--:--' : formatTime(rotationTime);
-    setHelp('duree-rotation-help', `DURÉE ROTATION FEU ↔ PÉLIC\n\nFormule : 20 min + 2 × temps d'aller simple\n\nDistance retenue :\n- Distance Feu → Pélicandrome mesurée si ≥ 10 Nm\n- 10 Nm minimum si la distance mesurée est < 10 Nm\n\nDistance Feu → Pélic mesurée : ${CALCULATOR_DATA.distPelicFeu} Nm\nDistance retenue : ${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm\n\nRègle vitesse :\n- distance ≤ 70 Nm : distance / 3,5 (210 kt)\n- distance > 70 Nm : distance / 4 (240 kt), jamais moins de 20 min (temps à 70 Nm)\n- exemples : 54 Nm = 15,4 min ; 80 Nm = 20 min ; 100 Nm = 25 min\n\nAller simple : ${formatNpfOneWayTransitCalculation(Math.max(CALCULATOR_DATA.distPelicFeu, 10))}\nCalcul : 20 + 2 × aller simple = ${formatTime(rotationTime)} (${rotationTime} min)\n\nCette durée sert pour les rotations supplémentaires après validation éventuelle du +1.`);
+    setHelp('duree-rotation-help', `DURÉE ROTATION FEU ↔ PÉLIC\n\nFormule : 20 min + 2 × temps d'aller simple\n\nDistance retenue :\n- Distance Feu → Pélicandrome mesurée si ≥ 10 Nm\n- 10 Nm minimum si la distance mesurée est < 10 Nm\n\nDistance Feu → Pélic mesurée : ${CALCULATOR_DATA.distPelicFeu} Nm\nDistance retenue : ${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm\n\nRègle vitesse : ${NPF_TRANSIT_RULE_TEXT}\n\nAller simple : ${formatNpfOneWayTransitCalculation(Math.max(CALCULATOR_DATA.distPelicFeu, 10))}\nCalcul : 20 + 2 × aller simple = ${formatTime(rotationTime)} (${rotationTime} min)\n\nCette durée sert pour les rotations supplémentaires après validation éventuelle du +1.`);
 
     document.getElementById('conso-par-rotation').textContent = consoRotation === 250 ? '-- kg' : `${consoRotation} kg`;
     setHelp('conso-par-rotation-help', `CONSO ROTATION FEU ↔ PÉLIC\n\nFormule : (Distance retenue × conso aller-retour) + forfait largage\n\nDistance retenue :\n- Distance Feu → Pélicandrome mesurée si ≥ 10 Nm\n- 10 Nm minimum si la distance mesurée est < 10 Nm\n\nDistance Feu → Pélic mesurée : ${CALCULATOR_DATA.distPelicFeu} Nm\nDistance retenue : ${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm\n\nRègle consommation aller-retour :\n- Distance retenue ≤ 70 Nm : 10 kg/Nm\n- Distance retenue > 70 Nm : 8 kg/Nm\n\nForfait largage : 250 kg\n\nCalcul : (${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} × ${Math.max(CALCULATOR_DATA.distPelicFeu, 10) <= 70 ? 10 : 8}) + 250 = ${consoRotation} kg`);
@@ -51469,10 +51469,9 @@ function updateSuiviTab() {
     }
     const bingoBase = calculateBingo(CALCULATOR_DATA.distBaseFeu);
     const bingoPelic = calculateBingo(CALCULATOR_DATA.distPelicFeu);
-    const bingoBaseDisplay = document.getElementById('suivi-bingo-base');
-    if (bingoBase === 700) { bingoBaseDisplay.innerHTML = '-- kg'; } else { bingoBaseDisplay.innerHTML = `${selectedBaseOACI} / ${CALCULATOR_DATA.distBaseFeu} Nm /&nbsp;<b>${bingoBase} kg</b>`; }
-    const bingoPelicDisplay = document.getElementById('suivi-bingo-pelic');
-    if (bingoPelic === 700 || !selectedPelicanOACI) { bingoPelicDisplay.innerHTML = '-- kg'; } else { bingoPelicDisplay.innerHTML = `${selectedPelicanOACI} / ${CALCULATOR_DATA.distPelicFeu} Nm /&nbsp;<b>${bingoPelic} kg</b>`; }
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE (renderNpfRunBingoValue, en tête du fichier). */
+    renderNpfRunBingoValue(document.getElementById('suivi-bingo-base'), NPF_RUN_BINGO1_OACI, CALCULATOR_DATA.distBingo1Feu);
+    renderNpfRunBingoValue(document.getElementById('suivi-bingo-pelic'), NPF_RUN_BINGO2_OACI, CALCULATOR_DATA.distBingo2Feu);
 
     if (!isSuiviConsoManual) {
         const previConso = document.getElementById('conso-par-rotation').textContent;
@@ -51943,10 +51942,9 @@ Sélectionnez un pélicandrome pour calculer la consommation de rotation.`);
         )
         : null;
 
-    const bingoBaseDisplay = document.getElementById('derout-bingo-base');
-    if (bingoBase === 700) { bingoBaseDisplay.innerHTML = '-- kg'; } else { bingoBaseDisplay.innerHTML = `${selectedBaseOACI} / ${CALCULATOR_DATA.distBaseFeu} Nm /&nbsp;<b>${bingoBase} kg</b>`; }
-    const bingoPelicDisplay = document.getElementById('derout-bingo-pelic');
-    if (bingoPelic === 700 || !selectedPelicanOACI) { bingoPelicDisplay.innerHTML = '-- kg'; } else { bingoPelicDisplay.innerHTML = `${selectedPelicanOACI} / ${CALCULATOR_DATA.distPelicFeu} Nm /&nbsp;<b>${bingoPelic} kg</b>`; }
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE (renderNpfRunBingoValue, en tête du fichier). */
+    renderNpfRunBingoValue(document.getElementById('derout-bingo-base'), NPF_RUN_BINGO1_OACI, CALCULATOR_DATA.distBingo1Feu);
+    renderNpfRunBingoValue(document.getElementById('derout-bingo-pelic'), NPF_RUN_BINGO2_OACI, CALCULATOR_DATA.distBingo2Feu);
 
     const fuelMiniBase = consoTransitFromGps !== null ? consoTransitFromGps + 250 + bingoBase : null;
     const fuelMiniPelic = consoTransitFromGps !== null ? consoTransitFromGps + 250 + bingoPelic : null;
@@ -51974,7 +51972,7 @@ Sélectionnez un pélicandrome pour calculer la consommation de rotation.`);
     document.getElementById('derout-heure-sur-feu').textContent = formatTime(heureSurFeu) || '--:--';
     document.getElementById('derout-cs-sur-feu').textContent = CALCULATOR_DATA.csFeu;
     setHelp('derout-heure-sur-feu-help', transitTimeFromGps !== null
-        ? `HEURE SUR FEU — DÉROUTEMENT\n\nCase « Retour Pélic avant feu » : ${deroutEmptyModeState}\n${deroutModeImpactText}\n\nFormule : Heure actuelle + Durée ${deroutFirstLegLabel}\n\n${deroutFirstLegDetail}\n\nRègle vitesse :\n- Distance ≤ 70 Nm : 210 kt\n- Distance > 70 Nm : 240 kt\n\nHeure actuelle : ${formatTime(heureActuelle) || 'N/A'}\nDurée ${deroutFirstLegLabel} : ${formatTime(transitTimeFromGps) || 'N/A'} (${transitTimeFromGps} min)\n\nCalcul : ${formatTime(heureActuelle) || 'N/A'} + ${formatTime(transitTimeFromGps) || 'N/A'} = ${formatTime(heureSurFeu) || 'N/A'}`
+        ? `HEURE SUR FEU — DÉROUTEMENT\n\nCase « Retour Pélic avant feu » : ${deroutEmptyModeState}\n${deroutModeImpactText}\n\nFormule : Heure actuelle + Durée ${deroutFirstLegLabel}\n\n${deroutFirstLegDetail}\n\nRègle vitesse : ${NPF_TRANSIT_RULE_TEXT}\n\nHeure actuelle : ${formatTime(heureActuelle) || 'N/A'}\nDurée ${deroutFirstLegLabel} : ${formatTime(transitTimeFromGps) || 'N/A'} (${transitTimeFromGps} min)\n\nCalcul : ${formatTime(heureActuelle) || 'N/A'} + ${formatTime(transitTimeFromGps) || 'N/A'} = ${formatTime(heureSurFeu) || 'N/A'}`
         : (isEmptyRetardant && !selectedPelicForDeroutement)
             ? 'Sélectionnez un pélicandrome pour le mode “vide retardant”.'
             : 'Distance GPS indisponible. Utilisez “🛰️ Rafraîchir GPS”.');
@@ -60032,6 +60030,8 @@ async function refreshSiaLayers(reason = 'manual') {
     const pointBounds = bounds.pad(0.04);
 
     for (const item of dataset.terrain || []) {
+        /* RUN v1.7 — hélistations dessinées par l'app (rond avec un H, src/220) : pas de rond SIA en double. */
+        if (item.t === 'HP') continue;
         if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
         const latlng = L.latLng(Number(item.x), Number(item.y));
         if (!pointBounds.contains(latlng)) continue;
@@ -65160,6 +65160,8 @@ async function refreshSiaLayers(reason = 'manual') {
         const npfDiagBuildPointsStart = NPF_STARTUP_DIAGNOSTIC.now();
 
         for (const { item, latlng } of visibleTerrainItems) {
+            /* RUN v1.7 — hélistations dessinées par l'app (rond avec un H, src/220) : pas de rond SIA en double. */
+            if (item && item.t === 'HP') continue;
             await yieldSiaRefreshIfLong();
             const terrainPopupHtml = buildSiaTerrainPopup(item);
             const marker = L.circleMarker(latlng, {

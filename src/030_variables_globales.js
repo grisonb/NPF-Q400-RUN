@@ -823,6 +823,9 @@ let communesPopulationLoadPromise = null;
 /* RUN — base par défaut : FMEP Saint-Pierre-Pierrefonds (décision de Bastien du 23/10/2026), qui est aussi le
  * pélicandrome normal ; modifiable dans le champ Base. */
 const DEFAULT_BASE_OACI = 'FMEP';
+/* RUN v1.7 — BINGO 1 toujours FMEP (seul pélicandrome), BINGO 2 toujours FMEE (dégagement) : src/290, src/150, src/270. */
+const NPF_RUN_BINGO1_OACI = 'FMEP';
+const NPF_RUN_BINGO2_OACI = 'FMEE';
 let selectedBaseOACI = DEFAULT_BASE_OACI;
 let gaarCircuits = [];
 let isGaarMode = false;
@@ -863,6 +866,12 @@ const VAC_STORE_NAME = 'vacPdfs';
  * VPS, dans le dossier npf-q400-run/ : carte/, calque-routier/, vac/ (CORS du VPS ouvert à https://grisonb.github.io).
  * Adresse FIXE (avant v1.6 : calculée depuis celle de l'app, servie par le VPS). sw.js : NPF_RUN_DONNEES_BASE_URL. */
 const NPF_RUN_DONNEES_BASE_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run/';
+/* RUN v1.7 — NOTAM de FMEP et FMEE : fichier du service VPS séparé npf-run-sofia-notams, dans un dossier À PART
+ * (dossier npf-q400-run-notams/ du serveur : une installation de la carte ne le touche jamais ; CORS https://grisonb.github.io).
+ * sw.js : même adresse. */
+const NPF_RUN_NOTAMS_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run-notams/notams-run.json';
+/* RUN v1.7 — terrains du fichier NOTAM (couverture par défaut, lue dès le chargement par src/210 : déclarée ici). */
+const NPF_RUN_NOTAMS_TERRAINS = ['FMEP', 'FMEE'];
 /* RUN — VAC de La Réunion dans le dossier vac/ du VPS (même format que NPF-Q400-VAC). */
 const VAC_REPOSITORY_BASE_URL = `${NPF_RUN_DONNEES_BASE_URL}vac/`;
 const VAC_MANIFEST_URL = `${VAC_REPOSITORY_BASE_URL}manifest.json`;
@@ -1340,6 +1349,10 @@ const COMMUNES_DISPLAY_MIN_ZOOM = 10.5;
 const ONLINE_MAX_NATIVE_ZOOM = 18;
 const OFFLINE_FALLBACK_NATIVE_ZOOM = 14;
 const OFFLINE_HARD_MAX_NATIVE_ZOOM = 13;
+/* RUN v1.7 — cran 0,5 NM (décision de Bastien du 25/10/2026) : la carte La Réunion RUN-6 contient le ZOOM 14 natif (fond,
+ * noms, îlets, relief). Limite 14 SEULEMENT quand la carte installée l'a (manifeste « zoomMax » 14, src/280
+ * isNpfRunZoom14Installed) : une carte RUN-5 (sans zoom 14) garde la limite 13, jamais de case blanche. */
+const NPF_RUN_ZOOM14_MAX_NATIVE_ZOOM = 14;
 // v13.58 — iPad : démarrage offline séquencé, sans scan IndexedDB lourd au lancement.
 // v16.42 — mémoire iPad : petit tampon NPF pour éviter l'accumulation de niveaux de zoom décodés.
 const OFFLINE_TILE_KEEP_BUFFER = 4;

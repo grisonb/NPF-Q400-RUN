@@ -570,6 +570,58 @@ otherAirports.forEach(airport => {
 const additionalAerodromes = piafMetropolitanAerodromes
     .filter(airport => !existingAirportCodesForAdditionalDisplay.has(airport.oaci));
 
+/* RUN v1.7 — BASES ULM de La Réunion (liste validée par Bastien le 25/10/2026) : les 5 fiches FFPLUM BASULM (position,
+ * fréquence ; « Source : Fédération Française d'ULM (BASULM) », mention dans Gestion des Cartes ; contacts NON repris).
+ * Même dessin, même étiquette (nom + fréquence à 2 NM et moins) et même comportement que les aérodromes « non
+ * utilisables pour le Dash » de la TEST (additionalAerodromes) : jamais pélicandrome, terrain le plus proche, rotation,
+ * BINGO ni dégagement. Code interne à 4 chiffres (l'app limite les codes à 4 caractères) ; code BASULM affiché. */
+const NPF_RUN_ULM_BASES = Object.freeze([
+    { oaci: '9741', codeAffiche: 'FM97401', name: 'LA SALINE-LES-BAINS ULM', lat: -21.097213, lon: 55.249107, frequence: '123.500' },
+    { oaci: '9742', codeAffiche: 'FM97402', name: 'CAMBAIE ULM', lat: -20.963263, lon: 55.281615, frequence: '122.100' },
+    { oaci: '9743', codeAffiche: 'FM97403', name: 'GRAND COUDE ULM (ALTISURFACE)', lat: -21.288811, lon: 55.623555, frequence: '123.500' },
+    { oaci: '9744', codeAffiche: 'FM97404', name: 'BRAS-PANON UCA ULM', lat: -20.985884, lon: 55.664506, frequence: '123.500' },
+    { oaci: '9745', codeAffiche: 'FM97405', name: 'TROIS-BASSINS PARAMOTEUR ULM', lat: -21.112064, lon: 55.261705, frequence: '' }
+]);
+NPF_RUN_ULM_BASES.forEach(base => additionalAerodromes.push({ ...base, ulm: true }));
+
+/* RUN v1.7 — HÉLISTATIONS de La Réunion (SIA, AIRAC de la RUN) : rond avec un H dessiné par l'app (src/220) et nom en
+ * étiquette (comme les aérodromes, 2 NM et moins). Jamais pélicandrome, terrain le plus proche, rotation, BINGO ni
+ * dégagement (hors de pelicanAirports / otherAirports). Le rond SIA vert n'est plus dessiné en double (src/340). */
+const NPF_RUN_HELISTATIONS = Object.freeze([
+    { oaci: 'FMEH', name: "SAINT PAUL L'ERMITAGE", lat: -21.068056, lon: 55.249444 },
+    { oaci: 'FMEL', name: "SAINT PAUL L'EPERON", lat: -21.034908, lon: 55.260283 },
+    { oaci: 'FMEM', name: 'MAFATE - LA NOUVELLE', lat: -21.075556, lon: 55.419167 },
+    { oaci: 'FMEN', name: 'SAINT DENIS CHU', lat: -20.891031, lon: 55.444075 },
+    { oaci: 'FMES', name: 'SAINT PIERRE CHU SUD', lat: -21.345556, lon: 55.493389 }
+]);
+
+/* RUN v1.7 — SITES DE VOL LIBRE de La Réunion (liste et symbole validés par Bastien le 25/10/2026) : décollages et
+ * atterrissages de confiance élevée, positions et altitudes OpenStreetMap (« © les contributeurs d'OpenStreetMap »,
+ * ODbL ; d'après la FFVL). Losange dessiné par l'app (src/220), nom en étiquette à 2 NM et moins. Jamais pélicandrome,
+ * terrain le plus proche, rotation, BINGO ni dégagement (hors de toutes les listes de terrains). t : D décollage,
+ * A atterrissage ; alt : mètres. Code interne VL01 à VL19 (étiquettes, fiche). */
+const NPF_RUN_VOL_LIBRE = Object.freeze([
+    { code: 'VL01', t: 'D', name: 'Colimaçons 800', lat: -21.131807, lon: 55.30328, alt: 765 },
+    { code: 'VL02', t: 'D', name: 'Colimaçons 700', lat: -21.150193, lon: 55.306847, alt: 620 },
+    { code: 'VL03', t: 'D', name: 'Saint-Leu 1400', lat: -21.150954, lon: 55.342327, alt: 1395 },
+    { code: 'VL04', t: 'D', name: 'Maïdo', lat: -21.059164, lon: 55.381736, alt: 2002 },
+    { code: 'VL05', t: 'D', name: 'Bellemène 850', lat: -21.022593, lon: 55.321966, alt: 733 },
+    { code: 'VL06', t: 'D', name: "Dos d'Âne", lat: -20.97741, lon: 55.368595, alt: 843 },
+    { code: 'VL07', t: 'D', name: 'Piton des Neiges', lat: -21.098751, lon: 55.480391, alt: 3034 },
+    { code: 'VL08', t: 'D', name: 'Le Dimitile', lat: -21.190143, lon: 55.484547, alt: 1741 },
+    { code: 'VL09', t: 'D', name: 'Piton Textor', lat: -21.187506, lon: 55.635087, alt: 2127 },
+    { code: 'VL10', t: 'D', name: 'Pente Zézé (Rivière des Remparts)', lat: -21.200003, lon: 55.646091, alt: 2275 },
+    { code: 'VL11', t: 'D', name: 'Piton Rond', lat: -21.15495, lon: 55.597765, alt: 1402 },
+    { code: 'VL12', t: 'D', name: 'Plaine des Grègues', lat: -21.320684, lon: 55.59319, alt: 916 },
+    { code: 'VL13', t: 'D', name: "Piton de l'Entonnoir", lat: -21.356835, lon: 55.614441, alt: 430 },
+    { code: 'VL14', t: 'D', name: 'Matouta', lat: -21.358929, lon: 55.696397, alt: 443 },
+    { code: 'VL15', t: 'A', name: 'Kélonia (plage de Saint-Leu)', lat: -21.152048, lon: 55.278419, alt: 8 },
+    { code: 'VL16', t: 'A', name: 'Petite Plaine (Piton Textor)', lat: -21.152223, lon: 55.600241, alt: 1196 },
+    { code: 'VL17', t: 'A', name: 'Cap Méchant (Matouta)', lat: -21.374503, lon: 55.70818, alt: 30 },
+    { code: 'VL18', t: 'A', name: "Ligne Trovalet (Piton de l'Entonnoir)", lat: -21.369112, lon: 55.603542, alt: 112 },
+    { code: 'VL19', t: 'A', name: "Stade de L'Entre-Deux (Dimitile)", lat: -21.247689, lon: 55.466255, alt: 360 }
+]);
+
 
 /*
  * v14.76 — pistes intégrées à la carte NPF, indépendamment des symboles.

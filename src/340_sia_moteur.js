@@ -2075,6 +2075,8 @@ async function refreshSiaLayers(reason = 'manual') {
     const pointBounds = bounds.pad(0.04);
 
     for (const item of dataset.terrain || []) {
+        /* RUN v1.7 — hélistations dessinées par l'app (rond avec un H, src/220) : pas de rond SIA en double. */
+        if (item.t === 'HP') continue;
         if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
         const latlng = L.latLng(Number(item.x), Number(item.y));
         if (!pointBounds.contains(latlng)) continue;

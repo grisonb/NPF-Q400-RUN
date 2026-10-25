@@ -1,11 +1,20 @@
 // =========================================================================
 // LOGIQUE DU CALCULATEUR DE MISSION
 // =========================================================================
-let CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0 };
+let CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0, distBingo1Feu: 0, distBingo2Feu: 0 };
+/* RUN v1.7 — BINGO affichés (décision de Bastien du 25/10/2026) : BINGO 1 TOUJOURS sur FMEP (seul pélicandrome), BINGO 2
+ * TOUJOURS sur FMEE (terrain de dégagement), quels que soient la base et le pélicandrome choisis. Même calcul que la TEST
+ * (calculateBingo : 700 kg + 5 kg/Nm), sur la distance feu -> terrain arrondie au Nm (src/270 updateCalculatorData). Les
+ * calculs de largages (FUEL RETOUR BASE / PÉLIC) et de fuel mini gardent la base et le pélicandrome, comme la TEST. */
+function renderNpfRunBingoValue(element, oaci, distanceNm) {
+    if (!element) return;
+    const bingo = calculateBingo(distanceNm);
+    element.innerHTML = bingo === 700 ? '-- kg' : `${oaci} / ${distanceNm} Nm /&nbsp;<b>${bingo} kg</b>`;
+}
 const calculateBingo = (dist) => (dist <= 70) ? (dist * 5) + 700 : (dist * 4) + 700;
 const calculateFuelToGo = (dist) => (dist <= 70) ? (dist * 5) : (dist * 4);
 const calculateConsoRotation = (dist) => { const effectiveDist = Math.max(dist, 10); return (effectiveDist <= 70) ? (effectiveDist * 10) + 250 : (effectiveDist * 8) + 250; };
-/* v17.89 — règle unique (src/050, calculateNpfOneWayTransitMinutes) : ≤ 70 Nm à 210 kt, > 70 Nm à 240 kt, jamais moins de 20 min. */
+/* RUN v1.7 — règle unique (src/050, calculateNpfOneWayTransitMinutes) : 200 kt pour toutes les distances. */
 const calculateTransitTime = (dist) => calculateNpfOneWayTransitMinutes(dist);
 
 /*
@@ -14,7 +23,7 @@ const calculateTransitTime = (dist) => calculateNpfOneWayTransitMinutes(dist);
  */
 const RETARDANT_LOADING_FORFAIT_MIN = 10;
 
-/* v17.89 — 20 min fixes + 2 × temps d'aller simple (règle unique, seuil 70 Nm), minimum de 10 Nm conservé. Avant :
+/* v17.89 — 20 min fixes + 2 × temps d'aller simple (règle unique ; RUN v1.7 : 200 kt), minimum de 10 Nm conservé. Avant :
  * 240 kt sur TOUTE la distance au-delà de 50 Nm (LFML 54 Nm = 47 min < LFLU 50 Nm = 49 min). */
 const calculateRotationTime = (dist) => {
     const effectiveDist = Math.max(dist, 10);
@@ -509,10 +518,9 @@ function updatePreviTab() {
 
     const bingoBase = calculateBingo(CALCULATOR_DATA.distBaseFeu);
     const bingoPelic = calculateBingo(CALCULATOR_DATA.distPelicFeu);
-    const bingoBaseDisplay = document.getElementById('previ-bingo-base');
-    if (bingoBase === 700) { bingoBaseDisplay.innerHTML = '-- kg'; } else { bingoBaseDisplay.innerHTML = `${selectedBaseOACI} / ${CALCULATOR_DATA.distBaseFeu} Nm /&nbsp;<b>${bingoBase} kg</b>`; }
-    const bingoPelicDisplay = document.getElementById('previ-bingo-pelic');
-    if (bingoPelic === 700 || !selectedPelicanOACI) { bingoPelicDisplay.innerHTML = '-- kg'; } else { bingoPelicDisplay.innerHTML = `${selectedPelicanOACI} / ${CALCULATOR_DATA.distPelicFeu} Nm /&nbsp;<b>${bingoPelic} kg</b>`; }
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE (renderNpfRunBingoValue, en tête du fichier). */
+    renderNpfRunBingoValue(document.getElementById('previ-bingo-base'), NPF_RUN_BINGO1_OACI, CALCULATOR_DATA.distBingo1Feu);
+    renderNpfRunBingoValue(document.getElementById('previ-bingo-pelic'), NPF_RUN_BINGO2_OACI, CALCULATOR_DATA.distBingo2Feu);
 
     const heureTO = parseTime(document.getElementById('previ-bloc-depart').querySelector('.display-input').value);
     const fuelDepart = parseNumeric(document.getElementById('previ-fuel-depart').querySelector('.display-input').value);
@@ -531,7 +539,7 @@ function updatePreviTab() {
     const heureSurFeu = heureTO !== null ? heureTO + previTempsAvantFeu : null;
 
     document.getElementById('duree-transit').textContent = formatTime(transitTime) || '--:--';
-    setHelp('duree-transit-help', `DURÉE TRANSIT BASE → FEU\n\nFormule : temps d'aller simple Base → Feu\n\nRègle vitesse :\n- distance ≤ 70 Nm : distance / 3,5 (210 kt)\n- distance > 70 Nm : distance / 4 (240 kt), jamais moins de 20 min (temps à 70 Nm)\n- exemples : 54 Nm = 15,4 min ; 80 Nm = 20 min ; 100 Nm = 25 min\n\nDistance Base → Feu : ${CALCULATOR_DATA.distBaseFeu} Nm\n\nCalcul : ${formatNpfOneWayTransitCalculation(CALCULATOR_DATA.distBaseFeu)} = ${formatTime(transitTime)} (${transitTime} min)`);
+    setHelp('duree-transit-help', `DURÉE TRANSIT BASE → FEU\n\nFormule : temps d'aller simple Base → Feu\n\nRègle vitesse : ${NPF_TRANSIT_RULE_TEXT}\n\nDistance Base → Feu : ${CALCULATOR_DATA.distBaseFeu} Nm\n\nCalcul : ${formatNpfOneWayTransitCalculation(CALCULATOR_DATA.distBaseFeu)} = ${formatTime(transitTime)} (${transitTime} min)`);
 
     document.getElementById('heure-sur-feu').textContent = formatTime(heureSurFeu) || '--:--';
     setHelp('heure-sur-feu-help', `HEURE SUR FEU — PRÉVI\n\nFormule : BLOC DÉPART + forfait plein retardant éventuel + durée transit Base → Feu\n\nBLOC DÉPART : ${formatTime(heureTO) || 'N/A'}\nRLT Départ : ${rltDepartMass !== null ? `${rltDepartMass} kg` : 'non renseigné'}\nForfait plein retardant : ${previForfaitRltMin} min\nDurée transit : ${formatTime(transitTime)} (${transitTime} min)\n\nCalcul : ${formatTime(heureTO) || 'N/A'} + ${previForfaitRltMin} min + ${formatTime(transitTime)} = ${formatTime(heureSurFeu) || 'N/A'}\n\n${firstTransitAlreadyLoaded ? 'Aucun forfait au premier transit : le champ RLT Départ de l’en-tête contient déjà une masse.' : `Le champ RLT Départ est vide : le forfait de ${RETARDANT_LOADING_FORFAIT_MIN} min est appliqué avant le premier transit.`}\nLes 10 min avant validation du largage restent appliquées séparément dans les limites CS/TMD/HDV.`);
@@ -540,7 +548,7 @@ function updatePreviTab() {
     setHelp('conso-aller-feu-help', `CONSO TRANSIT BASE → FEU\n\nFormule : Distance Base → Feu × Conso au Nm\n\nRègle consommation :\n- Distance ≤ 70 Nm : 5 kg/Nm\n- Distance > 70 Nm : 4 kg/Nm\n\nDistance Base → Feu : ${CALCULATOR_DATA.distBaseFeu} Nm\nConso retenue : ${CALCULATOR_DATA.distBaseFeu <= 70 ? 5 : 4} kg/Nm\n\nCalcul : ${CALCULATOR_DATA.distBaseFeu} × ${CALCULATOR_DATA.distBaseFeu <= 70 ? 5 : 4} = ${consoAller} kg`);
 
     document.getElementById('duree-rotation').textContent = rotationTime === 20 ? '--:--' : formatTime(rotationTime);
-    setHelp('duree-rotation-help', `DURÉE ROTATION FEU ↔ PÉLIC\n\nFormule : 20 min + 2 × temps d'aller simple\n\nDistance retenue :\n- Distance Feu → Pélicandrome mesurée si ≥ 10 Nm\n- 10 Nm minimum si la distance mesurée est < 10 Nm\n\nDistance Feu → Pélic mesurée : ${CALCULATOR_DATA.distPelicFeu} Nm\nDistance retenue : ${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm\n\nRègle vitesse :\n- distance ≤ 70 Nm : distance / 3,5 (210 kt)\n- distance > 70 Nm : distance / 4 (240 kt), jamais moins de 20 min (temps à 70 Nm)\n- exemples : 54 Nm = 15,4 min ; 80 Nm = 20 min ; 100 Nm = 25 min\n\nAller simple : ${formatNpfOneWayTransitCalculation(Math.max(CALCULATOR_DATA.distPelicFeu, 10))}\nCalcul : 20 + 2 × aller simple = ${formatTime(rotationTime)} (${rotationTime} min)\n\nCette durée sert pour les rotations supplémentaires après validation éventuelle du +1.`);
+    setHelp('duree-rotation-help', `DURÉE ROTATION FEU ↔ PÉLIC\n\nFormule : 20 min + 2 × temps d'aller simple\n\nDistance retenue :\n- Distance Feu → Pélicandrome mesurée si ≥ 10 Nm\n- 10 Nm minimum si la distance mesurée est < 10 Nm\n\nDistance Feu → Pélic mesurée : ${CALCULATOR_DATA.distPelicFeu} Nm\nDistance retenue : ${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm\n\nRègle vitesse : ${NPF_TRANSIT_RULE_TEXT}\n\nAller simple : ${formatNpfOneWayTransitCalculation(Math.max(CALCULATOR_DATA.distPelicFeu, 10))}\nCalcul : 20 + 2 × aller simple = ${formatTime(rotationTime)} (${rotationTime} min)\n\nCette durée sert pour les rotations supplémentaires après validation éventuelle du +1.`);
 
     document.getElementById('conso-par-rotation').textContent = consoRotation === 250 ? '-- kg' : `${consoRotation} kg`;
     setHelp('conso-par-rotation-help', `CONSO ROTATION FEU ↔ PÉLIC\n\nFormule : (Distance retenue × conso aller-retour) + forfait largage\n\nDistance retenue :\n- Distance Feu → Pélicandrome mesurée si ≥ 10 Nm\n- 10 Nm minimum si la distance mesurée est < 10 Nm\n\nDistance Feu → Pélic mesurée : ${CALCULATOR_DATA.distPelicFeu} Nm\nDistance retenue : ${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm\n\nRègle consommation aller-retour :\n- Distance retenue ≤ 70 Nm : 10 kg/Nm\n- Distance retenue > 70 Nm : 8 kg/Nm\n\nForfait largage : 250 kg\n\nCalcul : (${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} × ${Math.max(CALCULATOR_DATA.distPelicFeu, 10) <= 70 ? 10 : 8}) + 250 = ${consoRotation} kg`);
@@ -620,10 +628,9 @@ function updateSuiviTab() {
     }
     const bingoBase = calculateBingo(CALCULATOR_DATA.distBaseFeu);
     const bingoPelic = calculateBingo(CALCULATOR_DATA.distPelicFeu);
-    const bingoBaseDisplay = document.getElementById('suivi-bingo-base');
-    if (bingoBase === 700) { bingoBaseDisplay.innerHTML = '-- kg'; } else { bingoBaseDisplay.innerHTML = `${selectedBaseOACI} / ${CALCULATOR_DATA.distBaseFeu} Nm /&nbsp;<b>${bingoBase} kg</b>`; }
-    const bingoPelicDisplay = document.getElementById('suivi-bingo-pelic');
-    if (bingoPelic === 700 || !selectedPelicanOACI) { bingoPelicDisplay.innerHTML = '-- kg'; } else { bingoPelicDisplay.innerHTML = `${selectedPelicanOACI} / ${CALCULATOR_DATA.distPelicFeu} Nm /&nbsp;<b>${bingoPelic} kg</b>`; }
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE (renderNpfRunBingoValue, en tête du fichier). */
+    renderNpfRunBingoValue(document.getElementById('suivi-bingo-base'), NPF_RUN_BINGO1_OACI, CALCULATOR_DATA.distBingo1Feu);
+    renderNpfRunBingoValue(document.getElementById('suivi-bingo-pelic'), NPF_RUN_BINGO2_OACI, CALCULATOR_DATA.distBingo2Feu);
 
     if (!isSuiviConsoManual) {
         const previConso = document.getElementById('conso-par-rotation').textContent;
@@ -1094,10 +1101,9 @@ Sélectionnez un pélicandrome pour calculer la consommation de rotation.`);
         )
         : null;
 
-    const bingoBaseDisplay = document.getElementById('derout-bingo-base');
-    if (bingoBase === 700) { bingoBaseDisplay.innerHTML = '-- kg'; } else { bingoBaseDisplay.innerHTML = `${selectedBaseOACI} / ${CALCULATOR_DATA.distBaseFeu} Nm /&nbsp;<b>${bingoBase} kg</b>`; }
-    const bingoPelicDisplay = document.getElementById('derout-bingo-pelic');
-    if (bingoPelic === 700 || !selectedPelicanOACI) { bingoPelicDisplay.innerHTML = '-- kg'; } else { bingoPelicDisplay.innerHTML = `${selectedPelicanOACI} / ${CALCULATOR_DATA.distPelicFeu} Nm /&nbsp;<b>${bingoPelic} kg</b>`; }
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE (renderNpfRunBingoValue, en tête du fichier). */
+    renderNpfRunBingoValue(document.getElementById('derout-bingo-base'), NPF_RUN_BINGO1_OACI, CALCULATOR_DATA.distBingo1Feu);
+    renderNpfRunBingoValue(document.getElementById('derout-bingo-pelic'), NPF_RUN_BINGO2_OACI, CALCULATOR_DATA.distBingo2Feu);
 
     const fuelMiniBase = consoTransitFromGps !== null ? consoTransitFromGps + 250 + bingoBase : null;
     const fuelMiniPelic = consoTransitFromGps !== null ? consoTransitFromGps + 250 + bingoPelic : null;
@@ -1125,7 +1131,7 @@ Sélectionnez un pélicandrome pour calculer la consommation de rotation.`);
     document.getElementById('derout-heure-sur-feu').textContent = formatTime(heureSurFeu) || '--:--';
     document.getElementById('derout-cs-sur-feu').textContent = CALCULATOR_DATA.csFeu;
     setHelp('derout-heure-sur-feu-help', transitTimeFromGps !== null
-        ? `HEURE SUR FEU — DÉROUTEMENT\n\nCase « Retour Pélic avant feu » : ${deroutEmptyModeState}\n${deroutModeImpactText}\n\nFormule : Heure actuelle + Durée ${deroutFirstLegLabel}\n\n${deroutFirstLegDetail}\n\nRègle vitesse :\n- Distance ≤ 70 Nm : 210 kt\n- Distance > 70 Nm : 240 kt\n\nHeure actuelle : ${formatTime(heureActuelle) || 'N/A'}\nDurée ${deroutFirstLegLabel} : ${formatTime(transitTimeFromGps) || 'N/A'} (${transitTimeFromGps} min)\n\nCalcul : ${formatTime(heureActuelle) || 'N/A'} + ${formatTime(transitTimeFromGps) || 'N/A'} = ${formatTime(heureSurFeu) || 'N/A'}`
+        ? `HEURE SUR FEU — DÉROUTEMENT\n\nCase « Retour Pélic avant feu » : ${deroutEmptyModeState}\n${deroutModeImpactText}\n\nFormule : Heure actuelle + Durée ${deroutFirstLegLabel}\n\n${deroutFirstLegDetail}\n\nRègle vitesse : ${NPF_TRANSIT_RULE_TEXT}\n\nHeure actuelle : ${formatTime(heureActuelle) || 'N/A'}\nDurée ${deroutFirstLegLabel} : ${formatTime(transitTimeFromGps) || 'N/A'} (${transitTimeFromGps} min)\n\nCalcul : ${formatTime(heureActuelle) || 'N/A'} + ${formatTime(transitTimeFromGps) || 'N/A'} = ${formatTime(heureSurFeu) || 'N/A'}`
         : (isEmptyRetardant && !selectedPelicForDeroutement)
             ? 'Sélectionnez un pélicandrome pour le mode “vide retardant”.'
             : 'Distance GPS indisponible. Utilisez “🛰️ Rafraîchir GPS”.');

@@ -1,4 +1,4 @@
-/* NPF_STYLE_BUILD_VERSION: v1.6 */
+/* NPF_STYLE_BUILD_VERSION: v1.7 */
 /* v14.83 — nettoyage des références techniques et limitation des cartouches routiers. */
 /* v14.81 — recherche phonétique nationale élargie aux fragments sur deux lettres. */
 /* v14.80 — Brive conservé uniquement sous LFSL. */
@@ -2880,12 +2880,13 @@ body.fuel-keyboard-open .fuel-split-hint {
         white-space: nowrap !important;
     }
 
+    /* RUN v1.7 — BINGO 1 = FMEP, BINGO 2 = FMEE */
     #bingo-map-display #map-bingo-lftw::before {
-        content: "BASE ";
+        content: "FMEP ";
     }
 
     #bingo-map-display #map-bingo-pelic::before {
-        content: "PÉLIC ";
+        content: "FMEE ";
     }
 
     #bingo-map-display #map-bingo-lftw,
@@ -18930,4 +18931,28 @@ body.npf-calculator-modal-open {
    bord droit de l'étiquette à 22 px du centre de la pastille (la pastille et sa marque « FMEP » restent dégagées). */
 .airport-operational-label.airport-operational-label-gauche {
     transform: translate(calc(-100% - 22px), -50%);
+}
+
+/* RUN v1.7 — hélistations : symbole SVG dessiné par l'app (src/220 NPF_HELISTATION_SYMBOL_SVG) */
+.npf-helistation-icon {
+    background: transparent;
+    border: 0;
+}
+.npf-helistation-icon svg {
+    display: block;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.55));
+}
+
+/* RUN v1.7 — sites de vol libre : losange SVG dessiné par l'app (src/220 buildNpfVolLibreSymbolSvg) */
+.npf-vol-libre-icon {
+    background: transparent;
+    border: 0;
+}
+.npf-vol-libre-icon svg {
+    display: block;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6));
+}
+.npf-vol-libre-source {
+    font-size: 11px;
+    color: #555;
 }
