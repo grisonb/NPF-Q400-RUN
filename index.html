@@ -1,0 +1,2030 @@
+      
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <script>
+        /* RUN v1.6 — l'app est servie par GitHub Pages (https://grisonb.github.io/NPF-Q400-RUN/), À LA MÊME ADRESSE
+         * que NPF-Q400-TEST et la pérenne : le localStorage y est COMMUN aux trois apps. Les réglages de la RUN portent
+         * les mêmes noms que ceux de TEST / pérenne (installedMapPacks…) : ils sont donc rangés ici sous le préfixe
+         * « npf-q400-run: ». getItem / setItem / removeItem / key / length / clear de window.localStorage ne voient et
+         * ne touchent QUE les clés de la RUN (clear n'efface jamais les réglages de TEST / pérenne). Premier script de
+         * la page : rien ne lit le localStorage avant lui. sessionStorage (propre à chaque onglet) n'est pas changé. */
+        (function () {
+            try {
+                if (typeof Storage === 'undefined' || Storage.prototype.__npfRunPrefixe) return;
+                var P = 'npf-q400-run:';
+                var ls = window.localStorage;
+                var proto = Storage.prototype;
+                var get = proto.getItem, set = proto.setItem, rem = proto.removeItem, key = proto.key, clear = proto.clear;
+                var lenDesc = Object.getOwnPropertyDescriptor(proto, 'length');
+                if (!ls || !lenDesc || typeof lenDesc.get !== 'function') return;
+                var cles = function (s) {
+                    var out = [], n = lenDesc.get.call(s);
+                    for (var i = 0; i < n; i += 1) {
+                        var k = key.call(s, i);
+                        if (k !== null && k.indexOf(P) === 0) out.push(k);
+                    }
+                    return out;
+                };
+                proto.getItem = function (k) { return this === ls ? get.call(this, P + k) : get.apply(this, arguments); };
+                proto.setItem = function (k, v) { return this === ls ? set.call(this, P + k, v) : set.apply(this, arguments); };
+                proto.removeItem = function (k) { return this === ls ? rem.call(this, P + k) : rem.apply(this, arguments); };
+                proto.key = function (i) {
+                    if (this !== ls) return key.apply(this, arguments);
+                    var k = cles(this)[Number(i) || 0];
+                    return k === undefined ? null : k.slice(P.length);
+                };
+                proto.clear = function () {
+                    if (this !== ls) return clear.apply(this, arguments);
+                    var s = this;
+                    cles(s).forEach(function (k) { rem.call(s, k); });
+                };
+                Object.defineProperty(proto, 'length', {
+                    configurable: true,
+                    enumerable: lenDesc.enumerable,
+                    get: function () { return this === ls ? cles(this).length : lenDesc.get.call(this); }
+                });
+                proto.__npfRunPrefixe = P;
+            } catch (_) {}
+        })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>NPF-Q400-RUN</title>
+    <link rel="stylesheet" href="leaflet.css">
+    <link rel="stylesheet" href="style.css?appv=v1.6">
+    <link rel="manifest" href="manifest.json?appv=v1.6">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png?appv=run3">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png?appv=v13.92">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?appv=run3">
+    <!-- v17.47 — image de lancement iOS sombre, iPad 9e génération (810 × 1080 pt, @2x). -->
+    <link rel="apple-touch-startup-image" media="screen and (device-width: 810px) and (device-height: 1080px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/startup-ipad9-portrait.png">
+    <link rel="apple-touch-startup-image" media="screen and (device-width: 810px) and (device-height: 1080px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)" href="icons/startup-ipad9-landscape.png">
+    <meta name="theme-color" content="#0b2f6b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NPF-Q400-RUN">
+
+    <style id="early-boot-style">
+        /* v17.46 — écran de démarrage sombre, affiché avant le chargement des scripts.
+         * Il reste sous les fenêtres GLR / FdS (z-index 10060-10070) et sous le
+         * bandeau de messages, pour ne jamais les masquer. */
+        html, body {
+            min-height: 100%;
+            background: #0b1220;
+        }
+        #app-boot-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 10050;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b1220;
+            color: #e5eefc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-weight: 800;
+            letter-spacing: .02em;
+            text-align: center;
+        }
+        #app-boot-screen .boot-card {
+            padding: 18px 22px;
+            border-radius: 18px;
+            background: rgba(255,255,255,.06);
+            border: 1px solid rgba(255,255,255,.14);
+            font-size: 20px;
+        }
+        #app-boot-screen .boot-version {
+            margin-top: 6px;
+            font-size: 13px;
+            opacity: .7;
+        }
+        body.app-ready #app-boot-screen {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .18s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-boot-screen" aria-live="polite">
+        <div class="boot-card">
+            <div>NPF-Q400-RUN — démarrage…</div>
+            <div class="boot-version">NPF-Q400-RUN v1.6 (La Réunion)</div>
+        </div>
+    </div>
+    <script>
+        /* v17.46 — l'écran de démarrage disparaît dès que la carte est affichée
+         * (classe app-ready posée par l'app), et au plus tard 20 s après
+         * l'ouverture de la page, même en cas d'erreur. */
+        setTimeout(function () {
+            try {
+                document.body.classList.add('app-ready');
+                document.documentElement.classList.add('app-ready');
+            } catch (e) {}
+        }, 20000);
+    </script>
+    <div id="map"></div>
+    <div id="left-map-action-buttons">
+        <button id="high-voltage-lines-button" class="left-map-action-button high-voltage-map-button" title="Afficher/Masquer les lignes haute tension (EDF, OpenStreetMap)" aria-label="Afficher/Masquer les lignes haute tension (EDF, OpenStreetMap)">
+            <span class="powerline-icon" aria-hidden="true">
+                <svg viewBox="0 0 64 64" focusable="false" role="img">
+                    <path class="powerline-tower" d="M32 6 L18 58 H46 Z M32 6 V58 M23 38 H41 M26 26 H38 M20 18 H44"/>
+                    <path class="powerline-wire" d="M4 18 C15 14 22 14 32 18 C42 22 49 22 60 18"/>
+                    <path class="powerline-wire" d="M7 27 C17 24 24 24 32 27 C40 30 47 30 57 27"/>
+                </svg>
+            </span>
+            <!-- v17.82 — pastille du clignotement des HT (jaune = en marche, gris = arrêté), visible quand les HT sont affichées. -->
+            <span id="ht-blink-toggle" class="ht-blink-toggle" role="button" aria-pressed="false" style="display: none;"
+                  title="Clignotement des lignes HT" aria-label="Clignotement des lignes HT">
+                <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                    <g class="ht-blink-rays"><line x1="24.40" y1="16.00" x2="28.60" y2="16.00"/> <line x1="21.94" y1="21.94" x2="24.91" y2="24.91"/> <line x1="16.00" y1="24.40" x2="16.00" y2="28.60"/> <line x1="10.06" y1="21.94" x2="7.09" y2="24.91"/> <line x1="7.60" y1="16.00" x2="3.40" y2="16.00"/> <line x1="10.06" y1="10.06" x2="7.09" y2="7.09"/> <line x1="16.00" y1="7.60" x2="16.00" y2="3.40"/> <line x1="21.94" y1="10.06" x2="24.91" y2="7.09"/></g>
+                    <circle class="ht-blink-ring" cx="16" cy="16" r="5.4"/>
+                    <circle class="ht-blink-dot" cx="16" cy="16" r="2.4"/>
+                </svg>
+            </span>
+        </button>
+        <button id="road-overlay-button" class="left-map-action-button road-overlay-map-button"
+                title="Afficher/Masquer le calque routier A / N / D / M / T"
+                aria-label="Afficher/Masquer le calque routier autoroutes, nationales, départementales, métropolitaines et territoriales">
+            <span class="road-overlay-icon" aria-hidden="true">
+                <svg viewBox="0 0 72 72" focusable="false" role="img">
+                    <path class="road-overlay-road-casing" d="M12 63 C20 50 20 35 31 23 C39 14 48 12 60 8"/>
+                    <path class="road-overlay-road-line" d="M12 63 C20 50 20 35 31 23 C39 14 48 12 60 8"/>
+                    <rect class="road-overlay-shield road-overlay-shield-a" x="35" y="39" width="28" height="17" rx="5"/>
+                    <text class="road-overlay-shield-text" x="49" y="51">A7</text>
+                    <rect class="road-overlay-shield road-overlay-shield-d" x="7" y="10" width="36" height="17" rx="5"/>
+                    <text class="road-overlay-shield-text road-overlay-shield-text-dark" x="25" y="22">D559</text>
+                </svg>
+            </span>
+            <span id="road-overlay-button-status" class="road-overlay-button-status">—</span>
+        </button>
+        <button id="ops-frequencies-pdf-button" class="left-map-action-button ops-frequencies-map-button" title="Ouvrir la carte fréquences OPS" aria-label="Ouvrir la carte fréquences OPS">
+            <span class="radio-frequency-icon" aria-hidden="true">
+                <svg viewBox="0 0 64 64" focusable="false" role="img">
+                    <path class="radio-dish-bowl" d="M8 22 C9 40 22 53 42 56 L58 46 L20 8 Z"/>
+                    <path class="radio-dish-rim" d="M8 22 C9 40 22 53 42 56"/>
+                    <path class="radio-dish-arm" d="M38 35 L48 25"/>
+                    <circle class="radio-dish-node" cx="50" cy="23" r="3.8"/>
+                    <path class="radio-wave" d="M54 18 C58 21 60 25 60 30"/>
+                    <path class="radio-wave" d="M50 11 C59 15 64 23 64 32"/>
+                    <path class="radio-wave" d="M47 4 C61 8 70 20 70 34"/>
+                    <path class="radio-dish-foot" d="M23 52 L15 62 H38 L31 55"/>
+                </svg>
+            </span>
+        </button>
+        <div class="quick-offline-map-control">
+            <button id="quick-offline-map-button"
+                    class="left-map-action-button quick-offline-map-button"
+                    type="button"
+                    title="Choisir rapidement une carte offline"
+                    aria-label="Choisir rapidement une carte offline">
+                <span class="quick-offline-france-icon" aria-hidden="true">
+                    <svg viewBox="0 0 100 100" focusable="false" role="img">
+                        <path class="quick-offline-france-shape"
+                              d="M 58.3 9.5 L 52.3 11.0 L 50.8 13.0 L 50.1 19.3 L 48.0 20.8 L 43.8 21.7 L 41.5 22.8 L 40.2 25.1 L 40.7 26.9 L 38.1 27.5 L 33.5 26.5 L 32.8 25.9 L 32.4 23.2 L 28.1 22.6 L 27.3 24.8 L 27.8 26.6 L 29.4 28.7 L 29.5 33.1 L 30.0 34.1 L 27.3 33.4 L 24.1 33.5 L 22.6 34.2 L 21.0 32.3 L 16.5 31.7 L 15.7 32.9 L 10.5 33.0 L 8.5 34.3 L 8.0 36.2 L 9.7 37.5 L 10.1 38.5 L 9.2 38.9 L 9.1 40.0 L 10.8 42.3 L 11.7 42.6 L 13.1 41.7 L 18.1 43.3 L 19.6 45.1 L 21.1 44.7 L 23.0 45.5 L 22.8 46.7 L 24.5 47.5 L 25.6 48.9 L 24.8 49.3 L 24.8 50.7 L 25.9 53.1 L 27.9 54.8 L 31.1 56.2 L 31.3 57.3 L 30.2 59.9 L 31.7 61.9 L 31.0 62.4 L 30.5 62.1 L 31.0 62.5 L 29.8 67.8 L 30.1 69.6 L 29.2 74.8 L 28.8 74.8 L 28.9 76.7 L 28.2 79.0 L 26.0 81.5 L 26.4 82.4 L 28.5 83.1 L 28.8 84.4 L 32.4 85.1 L 33.8 86.3 L 36.5 86.4 L 39.3 87.6 L 41.2 87.3 L 43.0 86.3 L 46.2 87.7 L 46.0 88.4 L 48.8 89.9 L 51.4 89.7 L 53.1 90.5 L 55.3 90.4 L 56.7 89.5 L 59.2 89.5 L 59.4 88.3 L 58.3 85.8 L 58.5 83.2 L 59.5 81.9 L 63.6 79.5 L 65.0 79.3 L 67.4 80.6 L 71.9 81.2 L 73.1 82.7 L 74.9 82.9 L 75.9 83.9 L 79.4 84.0 L 82.1 82.7 L 82.6 81.3 L 84.7 80.2 L 85.3 79.1 L 87.4 78.3 L 89.7 73.9 L 88.7 72.7 L 85.7 73.1 L 84.2 72.1 L 83.9 70.5 L 85.0 68.4 L 82.8 65.8 L 84.2 65.4 L 85.3 64.4 L 85.4 62.6 L 83.8 60.1 L 84.5 59.7 L 84.7 58.3 L 83.4 56.6 L 83.5 54.5 L 82.5 53.6 L 81.1 53.5 L 79.8 54.1 L 78.3 55.7 L 79.2 54.5 L 79.6 52.2 L 81.2 51.2 L 81.3 50.1 L 84.2 46.9 L 83.9 45.7 L 86.5 45.6 L 87.9 44.3 L 88.5 38.6 L 90.2 34.3 L 91.8 32.3 L 92.0 30.7 L 88.0 29.7 L 86.6 28.7 L 82.8 28.4 L 81.2 25.8 L 74.7 24.8 L 71.6 22.3 L 71.0 18.9 L 69.6 18.6 L 68.3 20.4 L 67.6 20.4 L 66.9 17.9 L 64.8 17.4 L 64.6 16.7 L 62.8 15.9 L 62.1 14.1 L 59.4 13.7 Z"/>
+                    </svg>
+                </span>
+            </button>
+            <button id="quick-sia-vrp-toggle"
+                    class="quick-sia-vrp-toggle"
+                    type="button"
+                    aria-pressed="true"
+                    title="Masquer les points VFR / VRP"
+                    aria-label="Masquer les points VFR / VRP">
+                <span aria-hidden="true">N</span>
+            </button>
+            <button id="quick-sia-zones-toggle"
+                    class="quick-sia-zones-toggle"
+                    type="button"
+                    aria-pressed="false"
+                    title="Masquer temporairement les zones SIA de la carte"
+                    aria-label="Masquer temporairement les zones SIA de la carte">
+                <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                    <path class="quick-sia-eye-outline" d="M3 16 C7.2 9.7 11.5 7 16 7 C20.5 7 24.8 9.7 29 16 C24.8 22.3 20.5 25 16 25 C11.5 25 7.2 22.3 3 16 Z"/>
+                    <circle class="quick-sia-eye-pupil" cx="16" cy="16" r="4.2"/>
+                    <path class="quick-sia-eye-slash" d="M5 5 L27 27"/>
+                </svg>
+            </button>
+            <!-- RUN v1.5 — calques de noms séparés : MAISON = îlets / hameaux / lieux-dits (1 NM et moins), MONTAGNE = relief
+                 (sommets, cols, plaines). Visibles si la carte installée contient ces calques (src/285). -->
+            <button id="quick-calque-ilets-toggle"
+                    class="quick-calque-toggle quick-calque-ilets-toggle"
+                    type="button"
+                    hidden
+                    aria-pressed="true"
+                    title="Masquer le calque Îlets, hameaux, lieux-dits (à partir de 1 NM)"
+                    aria-label="Masquer le calque Îlets, hameaux, lieux-dits (à partir de 1 NM)">
+                <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                    <path class="quick-calque-forme" d="M16 4.5 L28.5 15.5 L25 15.5 L25 27.5 L19 27.5 L19 20 L13 20 L13 27.5 L7 27.5 L7 15.5 L3.5 15.5 Z"/>
+                    <path class="quick-calque-barre" d="M5 5 L27 27"/>
+                </svg>
+            </button>
+            <button id="quick-calque-relief-toggle"
+                    class="quick-calque-toggle quick-calque-relief-toggle"
+                    type="button"
+                    hidden
+                    aria-pressed="true"
+                    title="Masquer le calque Relief : sommets, cols, plaines"
+                    aria-label="Masquer le calque Relief : sommets, cols, plaines">
+                <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                    <path class="quick-calque-forme" d="M2.5 27 L12 9.5 L17 18 L20.5 12.5 L29.5 27 Z"/>
+                    <path class="quick-calque-neige" d="M12 9.5 L9.6 13.9 L11.2 13.1 L12.4 14.3 L14.3 13.7 Z"/>
+                    <path class="quick-calque-barre" d="M5 5 L27 27"/>
+                </svg>
+            </button>
+        </div>
+        <button id="briefing-docs-map-button"
+                class="left-map-action-button briefing-docs-group-map-button briefing-docs-none-loaded"
+                type="button"
+                title="FdS / GAAR — ouvrir les documents opérationnels"
+                aria-label="FdS / GAAR — ouvrir les documents opérationnels">
+            <span id="briefing-docs-main-fds-label" class="briefing-docs-main-line briefing-doc-missing">FdS</span>
+            <span id="briefing-docs-main-gaar-label" class="briefing-docs-main-line briefing-doc-missing">GAAR</span>
+        </button>
+        <button id="global-link-layer-button"
+                class="left-map-action-button global-link-map-button global-link-auth-needed"
+                type="button"
+                title="Trafic Moyens Nationaux — connexion requise"
+                aria-label="Trafic Moyens Nationaux">
+            <!-- v17.63 — logo « M2 » monochrome (#1565c0), intégré : aucun fichier, fonctionne hors ligne.
+                 v17.64 — texte « Moyens » / « Nationaux » sous le logo (logo réduit). -->
+            <span class="global-link-map-content" aria-hidden="true">
+                <svg class="global-link-map-label global-link-map-icon" viewBox="-70 -70 140 140" aria-hidden="true" focusable="false">
+                    <path fill="#1565c0" d="M-22,-60 A64,64 0 0,0 -22,60 A70,70 0 0,1 -22,-60 Z"/>
+                    <path fill="#1565c0" d="M22,-60 A64,64 0 0,1 22,60 A70,70 0 0,0 22,-60 Z"/>
+                    <circle r="46" fill="#fff" stroke="#1565c0" stroke-width="7"/>
+                    <path fill="#1565c0" d="M0,-32 L30,20 L-30,20 Z"/>
+                </svg>
+                <span class="global-link-map-text"><span>Moyens</span><span>Nationaux</span></span>
+            </span>
+            <span id="global-link-off-button-count" class="global-link-off-button-count" style="display:none;">0</span>
+            <span id="global-link-button-count" class="global-link-button-count" style="display:none;">0</span>
+        </button>
+        <button id="traffic-layer-button" class="left-map-action-button traffic-map-button" title="SafeSky — afficher/masquer le trafic aérien indicatif — appui long : filtres" aria-label="SafeSky — afficher ou masquer le trafic aérien indicatif">
+            <span class="traffic-icon traffic-safesky-icon" aria-hidden="true"></span>
+            <span id="traffic-tracked-button-count" class="traffic-tracked-button-count" style="display:none;">0</span>
+            <span id="traffic-button-count" class="traffic-button-count">0</span>
+        </button>
+        <button id="simulation-motion-button" class="left-map-action-button simulation-motion-map-button" type="button" hidden
+                title="Régler la vitesse et la route de l’avion simulé"
+                aria-label="Régler la vitesse et la route de l’avion simulé">
+            <span class="simulation-motion-glyph" aria-hidden="true">✈</span>
+            <span id="simulation-motion-button-summary" class="simulation-motion-button-summary">0 kt · 000°</span>
+        </button>
+        <button id="npf-startup-diag-button"
+                class="left-map-action-button npf-startup-diag-button"
+                type="button"
+                title="Diagnostic du chargement de la carte"
+                aria-label="Ouvrir le diagnostic du chargement">
+            <span class="npf-startup-diag-button-label">DIAG</span>
+        </button>
+    </div>
+    <button id="yul-trace-button"
+            class="npf-trace-record-button"
+            type="button"
+            title="TRACE — démarrer ou arrêter l’enregistrement GPS via le raccourci NPF Trace"
+            aria-label="TRACE — démarrer ou arrêter l’enregistrement GPS">
+        <span class="npf-trace-record-icon" aria-hidden="true"></span>
+    </button>
+    <div id="traffic-status-display" class="traffic-status-display" style="display: none;"></div>
+
+    <button id="sia-profile-swipe-handle"
+            class="sia-profile-swipe-handle"
+            type="button"
+            aria-label="Faire glisser vers le haut pour ouvrir le profil des espaces"
+            title="Glisser vers le haut : PROFIL ESPACES">
+        <span aria-hidden="true"></span>
+    </button>
+
+    <div id="sia-profile-panel" class="sia-profile-panel" hidden aria-hidden="true">
+        <div class="sia-profile-header">
+            <div>
+                <div class="sia-profile-title">PROFIL ESPACES</div>
+                <div id="sia-profile-subtitle" class="sia-profile-subtitle">Coupe verticale devant l'avion</div>
+            </div>
+            <div class="sia-profile-controls">
+                <button type="button" class="sia-profile-range-button active" data-profile-range="25">25 NM</button>
+                <button type="button" class="sia-profile-range-button" data-profile-range="50">50 NM</button>
+                <button type="button" class="sia-profile-range-button" data-profile-range="100">100 NM</button>
+                <button id="sia-profile-close" type="button" class="sia-profile-close" aria-label="Fermer le profil">&times;</button>
+            </div>
+        </div>
+        <div class="sia-profile-zone-toolbar">
+            <div class="sia-profile-zone-toolbar-main">
+                <span class="sia-profile-zone-toolbar-title">Zones du profil</span>
+                <div id="sia-profile-zone-filters" class="sia-profile-zone-filters" aria-label="Sélection des zones affichées dans le profil"></div>
+            </div>
+            <button id="sia-profile-map-zones-toggle"
+                    type="button"
+                    class="sia-profile-map-zones-toggle"
+                    aria-pressed="false"
+                    title="Masquer temporairement les zones de la carte sans modifier les filtres">Masquer zones</button>
+        </div>
+        <div id="sia-profile-chart" class="sia-profile-chart"></div>
+        <div class="sia-profile-note">FL représentés à 100 ft/FL ; SFC/AGL sans profil de relief.</div>
+    </div>
+
+    <div id="briefing-doc-selector-modal"
+         class="briefing-doc-selector-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="briefing-doc-selector-modal-content"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="briefing-doc-selector-title">
+            <button id="close-briefing-doc-selector-modal"
+                    class="briefing-doc-selector-modal-close"
+                    type="button"
+                    aria-label="Fermer">&times;</button>
+            <h2 id="briefing-doc-selector-title">FdS / GAAR</h2>
+            <p class="briefing-doc-selector-help">Sélectionne le document à ouvrir. La couleur indique si le document du jour est déjà chargé.</p>
+            <div class="briefing-doc-selector-list">
+                <button id="briefing-fds-map-button"
+                        class="briefing-doc-map-button briefing-doc-selector-choice briefing-doc-missing"
+                        type="button"
+                        title="FdS du jour non téléchargée"
+                        aria-label="FdS du jour non téléchargée">
+                    <span class="briefing-doc-selector-choice-name">FdS</span>
+                    <span id="briefing-fds-selector-status" class="briefing-doc-selector-choice-status">Non téléchargée</span>
+                </button>
+                <button id="briefing-gaar-map-button"
+                        class="briefing-doc-map-button briefing-doc-selector-choice briefing-doc-missing"
+                        type="button"
+                        title="GAAR du jour non téléchargé"
+                        aria-label="GAAR du jour non téléchargé">
+                    <span class="briefing-doc-selector-choice-name">GAAR</span>
+                    <span id="briefing-gaar-selector-status" class="briefing-doc-selector-choice-status">Non téléchargé</span>
+                </button>
+            </div>
+            <div class="briefing-doc-selector-bfg-row">
+                <button id="briefing-docs-bfg-pair-button"
+                        class="briefing-doc-selector-bfg-button"
+                        type="button"
+                        title="Associer BFG à NPF-Q400"
+                        aria-label="Associer BFG à NPF-Q400">BFG</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="global-link-password-modal"
+         class="global-link-auth-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="global-link-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="global-link-password-title">
+            <button id="global-link-password-close" class="global-link-auth-close" type="button" aria-label="Fermer">×</button>
+            <h3 id="global-link-password-title">Trafic Moyens Nationaux</h3>
+            <p class="global-link-auth-explain">Saisis le mot de passe NPF-Q400 pour afficher le Trafic Moyens Nationaux.</p>
+            <input id="global-link-password-input"
+                   class="global-link-password-input"
+                   type="password"
+                   autocomplete="current-password"
+                   autocapitalize="none"
+                   spellcheck="false"
+                   placeholder="Mot de passe NPF-Q400"
+                   aria-label="Mot de passe NPF-Q400" />
+            <div id="global-link-password-status" class="global-link-auth-status" aria-live="polite"></div>
+            <div class="global-link-auth-actions">
+                <button id="global-link-password-submit" type="button" class="global-link-primary-button">Continuer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="global-link-auth-modal"
+         class="global-link-auth-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="global-link-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="global-link-auth-title">
+            <button id="global-link-auth-close" class="global-link-auth-close" type="button" aria-label="Fermer">×</button>
+            <h3 id="global-link-auth-title">Trafic Moyens Nationaux</h3>
+            <p class="global-link-auth-explain">Recopie le code de sécurité affiché ci-dessous.</p>
+            <div class="global-link-captcha-frame">
+                <img id="global-link-captcha-image" alt="Code de sécurité" />
+            </div>
+            <input id="global-link-captcha-input"
+                   class="global-link-captcha-input"
+                   type="text"
+                   inputmode="numeric"
+                   autocomplete="off"
+                   maxlength="8"
+                   placeholder="Code de sécurité" />
+            <div id="global-link-auth-status" class="global-link-auth-status" aria-live="polite"></div>
+            <div class="global-link-auth-actions">
+                <button id="global-link-captcha-refresh" type="button" class="global-link-secondary-button">Nouveau code</button>
+                <button id="global-link-auth-submit" type="button" class="global-link-primary-button">Connexion</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="briefing-docs-password-modal"
+         class="briefing-docs-password-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="briefing-docs-password-dialog"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="briefing-docs-password-title">
+            <button id="briefing-docs-password-close"
+                    class="briefing-docs-password-close"
+                    type="button"
+                    aria-label="Fermer">&times;</button>
+            <h2 id="briefing-docs-password-title">Accès FdS / GAAR</h2>
+            <p id="briefing-docs-password-help">Si BFG a déjà autorisé NPF-Q400 aujourd’hui, l’accès est automatique. Sinon utilise le mot de passe NPF-Q400 ou, pour la première association seulement, le code BFG.</p>
+            <input id="briefing-docs-password-input"
+                   type="password"
+                   autocomplete="current-password"
+                   placeholder="Mot de passe NPF-Q400"
+                   aria-label="Mot de passe FdS et GAAR">
+            <button id="briefing-docs-authorize-button"
+                    type="button"
+                    class="briefing-docs-password-submit">Autoriser jusqu’à minuit</button>
+            <div class="briefing-docs-bfg-pairing-separator">Première association BFG ↔ NPF-Q400</div>
+            <input id="briefing-docs-bfg-code-input"
+                   type="text"
+                   inputmode="numeric"
+                   autocomplete="one-time-code"
+                   maxlength="8"
+                   placeholder="Code BFG à 8 chiffres"
+                   aria-label="Code d'association BFG">
+            <button id="briefing-docs-bfg-code-button"
+                    type="button"
+                    class="briefing-docs-password-submit briefing-docs-bfg-code-submit">Associer avec le code BFG</button>
+            <button id="briefing-docs-password-fallback-button"
+                    type="button"
+                    class="briefing-docs-password-fallback-button"
+                    style="display:none;">Utiliser le mot de passe NPF-Q400</button>
+            <div id="briefing-docs-password-status"
+                 class="briefing-docs-password-status"
+                 aria-live="polite"></div>
+        </div>
+    </div>
+
+    <div id="briefing-doc-viewer-modal"
+         class="briefing-doc-viewer-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="briefing-doc-viewer-toolbar">
+            <div class="briefing-doc-viewer-heading">
+                <strong id="briefing-doc-viewer-title">FdS / GAAR</strong>
+                <span id="briefing-doc-viewer-meta"></span>
+            </div>
+            <div class="briefing-doc-viewer-actions">
+                <button id="briefing-doc-viewer-refresh"
+                        type="button"
+                        class="briefing-doc-viewer-refresh">Maj</button>
+                <button id="briefing-doc-viewer-close"
+                        type="button"
+                        class="briefing-doc-viewer-close">Fermer</button>
+            </div>
+        </div>
+        <div id="briefing-doc-viewer-status"
+             class="briefing-doc-viewer-status"
+             aria-live="polite"></div>
+        <div id="briefing-doc-viewer-stage" class="briefing-doc-viewer-stage">
+            <iframe id="briefing-doc-viewer-frame"
+                    class="briefing-doc-viewer-frame"
+                    title="Document FdS ou GAAR"
+                    src="about:blank"></iframe>
+        </div>
+    </div>
+
+    <div id="quick-offline-map-modal"
+         class="quick-offline-map-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="quick-offline-map-modal-content"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="quick-offline-map-modal-title">
+            <button id="close-quick-offline-map-modal"
+                    class="quick-offline-map-modal-close"
+                    type="button"
+                    aria-label="Fermer">&times;</button>
+            <h2 id="quick-offline-map-modal-title">Cartes Offline</h2>
+            <p class="quick-offline-map-help">Sélectionne directement la carte à afficher. Un nouvel appui sur la carte déjà active force sa réouverture.</p>
+            <div id="quick-offline-map-list" class="quick-offline-map-list" aria-live="polite"></div>
+            <div id="quick-offline-map-status" class="quick-offline-map-status" aria-live="polite"></div>
+        </div>
+    </div>
+
+    <div id="simulation-motion-modal" class="simulation-motion-modal" style="display: none;" aria-hidden="true">
+        <div class="simulation-motion-modal-content" role="dialog" aria-modal="true" aria-labelledby="simulation-motion-modal-title">
+            <button id="close-simulation-motion-modal" class="simulation-motion-modal-close" type="button" aria-label="Fermer">&times;</button>
+            <h2 id="simulation-motion-modal-title">Déplacement simulation</h2>
+
+            <div class="simulation-motion-fields">
+                <label class="simulation-motion-field" for="simulation-speed-input">
+                    <span>Vitesse</span>
+                    <div class="simulation-motion-input-unit">
+                        <input id="simulation-speed-input" type="text" inputmode="decimal" autocomplete="off"
+                               autocapitalize="off" spellcheck="false" maxlength="6" value="0">
+                        <span>kt</span>
+                    </div>
+                </label>
+
+                <label class="simulation-motion-field" for="simulation-route-input">
+                    <span>Route</span>
+                    <div class="simulation-motion-input-unit">
+                        <input id="simulation-route-input" type="text" inputmode="decimal" autocomplete="off"
+                               autocapitalize="off" spellcheck="false" maxlength="5" value="0">
+                        <span>°</span>
+                    </div>
+                </label>
+
+                <label class="simulation-motion-field" for="simulation-altitude-input">
+                    <span>Altitude</span>
+                    <div class="simulation-motion-input-unit">
+                        <input id="simulation-altitude-input" type="text" inputmode="decimal" autocomplete="off"
+                               autocapitalize="off" spellcheck="false" maxlength="6" value="0">
+                        <span>ft</span>
+                    </div>
+                </label>
+            </div>
+
+            <p class="simulation-motion-help">
+                Le déplacement commence dès que l’avion est positionné sur la carte. Une vitesse de 0 kt maintient l’avion immobile. L’altitude simulée sert de référence pour la couleur des trafics réels.
+                <span class="simulation-finger-only-note">Stylet désactivé dans toute l’application — saisie au doigt uniquement.</span>
+            </p>
+
+            <div class="simulation-motion-actions">
+                <button id="apply-simulation-motion" class="simulation-motion-apply-button" type="button">Appliquer</button>
+                <button id="quit-simulation-mode" class="simulation-motion-quit-button" type="button">Quitter mode simulation</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="main-action-buttons">
+        <button id="toggle-search-button" title="Rechercher une commune"><img class="map-action-icon search-commune-icon" src="icons/search-commune-icon.png?appv=v12.13-offline-progress-waterpoints-startup" alt=""></button>
+        <button id="calculator-button" title="Ouvrir le calculateur de mission" aria-label="Calculateur"><img class="map-action-icon calculator-fms-icon" src="icons/calculator-fms-icon.png?appv=v12.13-offline-progress-waterpoints-startup" alt=""></button>
+        <button id="bloc-fuel-shortcut-button" title="Ouvrir directement BLOC / FUEL" aria-label="BLOC / FUEL"><img class="bloc-fuel-shortcut-img" src="icons/bloc-fuel-shortcut-icon.png?appv=v12.13-offline-progress-waterpoints-startup" alt=""></button>
+        <button id="gps-feu-button" title="Créer un feu à ma position"><span class="gps-feu-icon-glyph" aria-hidden="true">🎯</span></button>
+        <button id="center-gps-button"
+                title="Clic : centrer sur ma position · Appui long : activer le suivi"
+                aria-label="Centrer sur ma position ; appui long pour activer le suivi"
+                aria-pressed="false">
+            <img class="map-action-icon center-gps-icon"
+                 src="icons/center-gps-icon.png?appv=v12.13-offline-progress-waterpoints-startup"
+                 alt="">
+        </button>
+        <button id="chat-toggle-button" title="Ouvrir/Fermer le chat équipe">💬<span id="chat-alert-badge" style="display:none;">0</span><span id="chat-offline-badge" aria-hidden="true">✕</span></button>
+        <div id="app-version-display" class="version-display">--</div>
+    </div>
+      <div id="bingo-map-display" style="display: none;">
+        <span id="map-bingo-lftw"></span>
+        <span id="map-bingo-pelic"></span>
+    </div>
+    <div id="commune-info-display"></div>
+    <div id="nearest-commune-display" class="gps-waiting" style="position:fixed;display:flex;visibility:visible;opacity:1;z-index:2147483000;right:16px;bottom:16px;">📍 Survolée: <b>GPS en attente</b></div>
+    <div id="team-chat-panel" style="display: none;">
+        <div class="chat-header">
+            <span id="chat-online-users">Vus <30 min: --</span>
+            <div class="chat-header-actions">
+                <span id="chat-connection-state">Hors ligne</span>
+                <button id="chat-clear-button" title="Supprimer les messages">🗑️</button>
+                <button id="chat-minimize-button" title="Réduire/Agrandir le chat">—</button>
+            </div>
+        </div>
+        <div class="chat-config-row">
+            <label class="chat-config-cell" for="chat-room-input">
+                <span>Canal</span>
+                <input type="text" id="chat-room-input" maxlength="32" value="Reunion" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true">
+            </label>
+            <label class="chat-config-cell" for="chat-user-input">
+                <span>Pseudo</span>
+                <input type="text" id="chat-user-input" maxlength="24" value="" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true">
+            </label>
+            <button id="chat-connect-button">Connexion</button>
+        </div>
+        <div id="chat-messages"></div>
+        <div class="chat-send-row">
+            <input type="text" id="chat-message-input" maxlength="280" placeholder="Message..." autocomplete="one-time-code" autocorrect="off" autocapitalize="sentences" spellcheck="false" data-lpignore="true" data-1p-ignore="true">
+            <button id="chat-send-button">Envoyer</button>
+        </div>
+    </div>
+
+    <div id="chat-connect-modal"
+         class="chat-connect-modal"
+         style="display: none;"
+         aria-hidden="true">
+        <div class="chat-connect-modal-content"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="chat-connect-modal-title">
+            <h3 id="chat-connect-modal-title">Connexion au chat</h3>
+
+            <label class="chat-connect-gps-row" for="chat-connect-gps-checkbox">
+                <span>Activer localisation GPS</span>
+                <input type="checkbox"
+                       id="chat-connect-gps-checkbox">
+            </label>
+
+            <div class="chat-connect-summary" aria-live="polite">
+                <div><span>Canal</span><strong id="chat-connect-room-summary">Reunion</strong></div>
+                <div><span>Pseudo</span><strong id="chat-connect-user-summary">—</strong></div>
+            </div>
+
+            <div id="chat-connect-modal-status"
+                 class="chat-connect-modal-status"
+                 aria-live="polite"></div>
+
+            <div class="chat-connect-modal-actions">
+                <button id="chat-connect-modal-cancel"
+                        type="button"
+                        class="chat-connect-modal-secondary">Annuler</button>
+                <button id="chat-connect-modal-confirm"
+                        type="button"
+                        class="chat-connect-modal-primary">Valider et se connecter</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="chat-clear-modal" class="chat-clear-modal" style="display: none;">
+        <div class="chat-clear-modal-content">
+            <h3>Suppression des messages</h3>
+            <p>Choisissez l’action à effectuer :</p>
+            <div class="chat-clear-modal-actions">
+                <button id="chat-clear-local-button" class="chat-clear-option">Supprimer localement</button>
+                <button id="chat-clear-channel-button" class="chat-clear-option chat-clear-option-danger">Local + canal</button>
+                <button id="chat-clear-cancel-button" class="chat-clear-option">Annuler</button>
+            </div>
+        </div>
+    </div>
+    <div id="ui-overlay">
+        <div id="status-message">Chargement des données...</div>
+        <div id="search-section" style="display: none;">
+            <div class="controls-container">
+                <div class="search-wrapper">
+                    <input type="text" id="search-input" placeholder="Rechercher une commune ou un OACI..." autocomplete="off">
+                    <span id="clear-search">×</span>
+                </div>
+                <button id="live-gps-button" title="Activer/Désactiver le suivi GPS">🛰️</button>
+                <div class="airport-controls">
+                    <label for="airport-count">Nbr Pélic.</label>
+                    <input type="number" id="airport-count" value="2" min="0" max="10">
+                </div>
+            </div>
+            <ul id="results-list" style="display: none;"></ul>
+               
+<div class="extra-controls extra-controls-grid">
+                <button id="gaar-mode-button" class="toggle-button" title="Afficher/Masquer les circuits GAAR">Circuits<br>GAAR</button>
+                <button id="departments-layer-button" class="toggle-button" title="Afficher/Masquer les contours de départements">Départements</button>
+                <button id="communes-layer-button" class="toggle-button" title="Afficher/Masquer les contours de communes">Communes</button>
+                <button id="water-points-button" class="toggle-button npf-run-section-masquee" title="Afficher/Masquer les 3 plans d'eau les plus proches">Plan<br>d'eau</button>
+                <button id="offline-maps-button" class="toggle-button" title="Gérer les cartes hors-ligne">Cartes</button>
+            </div>
+
+  
+                
+<div id="gaar-controls" style="display: none;">
+                <button id="edit-circuits-button" class="gaar-action-button gaar-edit-button">Créer/Modifier</button>
+                <button id="delete-circuits-btn" class="gaar-action-button gaar-delete-button">Supprimer Circuits</button>
+                <p id="gaar-status"></p>
+            </div>
+
+            <div id="offline-status"></div>
+        </div>
+    </div>
+
+    <!-- v17.20 — le splash est parsé avant le gros contrôleur PWA afin de réduire le blanc initial Safari. -->
+    <script>
+        /* v17.46 — mesures du démarrage (DIAG) : début des scripts de la page,
+         * coût de la première lecture du stockage local (Safari charge alors
+         * tout le stockage), et historique des feux tel que lu au lancement. */
+        window.__npfBootTiming = { inlineAt: performance.now() };
+        try {
+            const storageReadStart = performance.now();
+            const rawFireHistory = localStorage.getItem('fireHistoryV1');
+            window.__npfBootTiming.localStorageFirstReadMs = performance.now() - storageReadStart;
+            let fireCount = 0;
+            let fireError = '';
+            try {
+                const parsedFireHistory = JSON.parse(rawFireHistory || '[]');
+                fireCount = Array.isArray(parsedFireHistory) ? parsedFireHistory.length : 0;
+            } catch (parseError) {
+                fireError = String(parseError && parseError.message || parseError).slice(0, 60);
+            }
+            window.__npfBootTiming.fireHistoryAtLaunch = {
+                n: fireCount,
+                chars: rawFireHistory ? rawFireHistory.length : 0,
+                error: fireError
+            };
+        } catch (_) {}
+
+        const APP_VERSION = 'v1.6';
+        const SERVICE_WORKER_URL = `./sw.js?appv=${encodeURIComponent(APP_VERSION)}`;
+        const APP_VERSION_STORAGE_KEY = 'appVersion';
+        const SW_CONTROLLER_RELOAD_GUARD_KEY = 'swControllerReloadGuard';
+        const POST_UPDATE_NOTICE_VERSION_KEY = 'npfPostUpdateRestartNoticeVersion';
+        const POST_UPDATE_NOTICE_PENDING_KEY = 'npfPostUpdateRestartNoticePending';
+        const POST_UPDATE_NOTICE_REMAINING_KEY = 'npfPostUpdateRestartNoticeRemaining';
+        const POST_UPDATE_NOTICE_SHOWN_VERSION_KEY = 'npfPostUpdateNoticeShownVersion';
+        const POST_UPDATE_TRANSITION_PARAM = 'npfupdate';
+
+        window.APP_VERSION = APP_VERSION;
+        window.SW_DISABLED_FOR_PLATFORM = false;
+        window.NPF_POST_UPDATE_NOTICE_MANAGED = true;
+
+        /*
+         * v17.37 — journal des 5 derniers lancements NPF-Q400 TEST, le plus léger
+         * possible : étapes du démarrage et messages d'erreur seulement.
+         * Aucune écriture pendant le démarrage : une seule écriture quand la
+         * carte visible est complète, ou immédiatement en cas d'erreur. Si la
+         * carte n'est jamais complète : écriture à 60 s ou en quittant.
+         * Mesure seule (SafeSky / GLR) : taille du localStorage, écritures
+         * refusées, showTrafficLayer relu au lancement, échéance GLR.
+         */
+        (function installNpfLaunchLog() {
+            const LAUNCH_LOG_KEY = 'npfQ400TestLaunchLogV1';
+            const LAUNCH_LOG_MAX = 5;
+            /* v17.38 — reconnaît aussi « n’est pas disponible » et « injoignable ». */
+            const ERROR_TEXT_PATTERN = /erreur|échec|impossible|indisponible|n[’']est pas disponible|injoignable|dégradé|❌/i;
+            const readRaw = key => {
+                try { return localStorage.getItem(key); } catch (_) { return null; }
+            };
+            const launch = {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                at: Date.now(),
+                version: APP_VERSION,
+                controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller),
+                reloadReason: (() => {
+                    try {
+                        const params = new URL(window.location.href).searchParams;
+                        return ['swrefresh', 'swctl', 'ts', 'npfupdate'].filter(name => params.has(name)).join(',');
+                    } catch (_) { return ''; }
+                })(),
+                status: 'en cours',
+                steps: [],
+                errors: [],
+                safeSkyAtLaunch: readRaw('showTrafficLayer'),
+                /* v17.39 — état des calques HT / Routes au lancement. */
+                layersAtLaunch: {
+                    ht: readRaw('showHighVoltageLinesLayer'),
+                    routes: readRaw('showRoadOverlayLayer')
+                },
+                glrAtLaunch: {
+                    token: !!readRaw('npfGlobalLinkSessionV1'),
+                    exp: Number(readRaw('npfGlobalLinkSessionExpV1')) || 0
+                }
+            };
+            const refusedWrites = [];
+            const cost = { writes: 0, maxMs: 0, totalMs: 0, refused: 0 };
+            let written = false;
+            let finalWriteDone = false;
+            let pendingErrorWrite = 0;
+
+            /* Écritures localStorage refusées (quota…) : notées puis relancées telles quelles. */
+            try {
+                const storageProto = window.Storage && window.Storage.prototype;
+                const originalSetItem = storageProto && storageProto.setItem;
+                if (originalSetItem) {
+                    storageProto.setItem = function npfLaunchLogSetItem(key, value) {
+                        try {
+                            return originalSetItem.call(this, key, value);
+                        } catch (error) {
+                            try {
+                                if (this === window.localStorage && refusedWrites.length < 20) {
+                                    refusedWrites.push({
+                                        at: Date.now(),
+                                        key: String(key),
+                                        size: String(value).length,
+                                        error: String(error && error.name || error || '')
+                                    });
+                                }
+                            } catch (_) {}
+                            throw error;
+                        }
+                    };
+                }
+            } catch (_) {}
+
+            const storageSummary = () => {
+                let total = 0;
+                const keys = [];
+                try {
+                    for (let index = 0; index < localStorage.length; index += 1) {
+                        const key = localStorage.key(index);
+                        const size = String(key || '').length + String(localStorage.getItem(key) || '').length;
+                        total += size;
+                        keys.push([key, size]);
+                    }
+                } catch (_) {}
+                keys.sort((a, b) => b[1] - a[1]);
+                return { total, top: keys.slice(0, 5) };
+            };
+
+            const collectSteps = () => {
+                try {
+                    const marks = window.NPF_STARTUP_DIAGNOSTIC?.state?.marks;
+                    if (!Array.isArray(marks)) return [];
+                    return marks
+                        .filter(mark => !String(mark.key || '').startsWith('sw_') || /MAJ/.test(String(mark.label || '')))
+                        .slice(0, 60)
+                        .map(mark => [
+                            String(mark.label || mark.key || '').slice(0, 60),
+                            Math.round(Number(mark.t) || 0),
+                            String(mark.detail || '').slice(0, 60)
+                        ]);
+                } catch (_) {
+                    return [];
+                }
+            };
+
+            const writeLaunch = status => {
+                const started = performance.now();
+                try {
+                    if (status) launch.status = status;
+                    launch.steps = collectSteps();
+                    launch.writtenAt = Date.now();
+                    launch.safeSkyAtWrite = readRaw('showTrafficLayer');
+                    launch.storage = storageSummary();
+                    launch.refusedWrites = refusedWrites.slice(-10);
+                    /* v17.39 — 20 premières lectures du pack (mesurées par le DIAG). */
+                    try {
+                        if (typeof npfDiagFirstPackReadsSummary === 'function') launch.firstReads = npfDiagFirstPackReadsSummary();
+                    } catch (_) {}
+                    let list = [];
+                    try { list = JSON.parse(readRaw(LAUNCH_LOG_KEY) || '[]'); } catch (_) { list = []; }
+                    if (!Array.isArray(list)) list = [];
+                    list = list.filter(item => item && item.id !== launch.id);
+                    /* v17.39 — heure du lancement précédent (temps écoulé depuis). */
+                    const previous = list.filter(item => Number(item.at) < launch.at).pop();
+                    if (previous) launch.previousAt = Number(previous.at);
+                    list.push(launch);
+                    localStorage.setItem(LAUNCH_LOG_KEY, JSON.stringify(list.slice(-LAUNCH_LOG_MAX)));
+                    written = true;
+                } catch (_) {
+                    cost.refused += 1;
+                }
+                const elapsed = performance.now() - started;
+                cost.writes += 1;
+                cost.totalMs += elapsed;
+                cost.maxMs = Math.max(cost.maxMs, elapsed);
+            };
+
+            const addError = (type, message, source = '') => {
+                if (launch.errors.length >= 12) return;
+                launch.errors.push({
+                    t: Math.round(performance.now()),
+                    type,
+                    message: String(message || '').replace(/\s+/g, ' ').trim().slice(0, 220),
+                    source: String(source || '').slice(0, 140)
+                });
+                if (launch.status === 'en cours') launch.status = 'erreur';
+                if (pendingErrorWrite) return;
+                pendingErrorWrite = setTimeout(() => {
+                    pendingErrorWrite = 0;
+                    writeLaunch();
+                }, 0);
+            };
+
+            window.addEventListener('error', event => {
+                try {
+                    const target = event && event.target;
+                    if (target && target !== window && (target.src || target.href)) {
+                        const url = String(target.src || target.href || '');
+                        if (/\.(js|css)(\?|$)/i.test(url)) {
+                            addError('ressource', `échec du chargement de ${url.replace(/^.*\//, '')}`, target.tagName || '');
+                        }
+                        return;
+                    }
+                    const where = event.filename
+                        ? `${String(event.filename).replace(/^.*\//, '')}:${event.lineno || 0}:${event.colno || 0}`
+                        : '';
+                    addError('javascript', event.message || event.error?.message || 'erreur', where);
+                } catch (_) {}
+            }, true);
+
+            window.addEventListener('unhandledrejection', event => {
+                try {
+                    const reason = event && event.reason;
+                    addError('promesse', reason?.message || String(reason || 'rejet sans motif'));
+                } catch (_) {}
+            });
+
+            /* Texte d'erreur affiché à l'écran pendant le démarrage (60 s). */
+            try {
+                const originalAlert = window.alert;
+                window.alert = function npfLaunchLogAlert(message) {
+                    try {
+                        if (performance.now() < 60000 && ERROR_TEXT_PATTERN.test(String(message || ''))) {
+                            addError('message affiché', message);
+                        }
+                    } catch (_) {}
+                    return originalAlert.apply(this, arguments);
+                };
+            } catch (_) {}
+            try {
+                const statusElement = document.getElementById('status-message');
+                if (statusElement && typeof MutationObserver === 'function') {
+                    const observer = new MutationObserver(() => {
+                        const text = String(statusElement.textContent || '');
+                        if (ERROR_TEXT_PATTERN.test(text)) addError('message affiché', text);
+                    });
+                    observer.observe(statusElement, { childList: true, characterData: true, subtree: true });
+                    setTimeout(() => observer.disconnect(), 60000);
+                }
+            } catch (_) {}
+
+            const finalWrite = status => {
+                if (finalWriteDone) return;
+                finalWriteDone = true;
+                writeLaunch(status);
+            };
+            window.addEventListener('npf-startup-map-complete', () => {
+                finalWrite(launch.errors.length ? 'carte complète (avec erreurs)' : 'carte complète');
+            });
+            setTimeout(() => {
+                if (!finalWriteDone) finalWrite('carte non complète à 60 s');
+            }, 60000);
+            const leave = () => {
+                if (!finalWriteDone) finalWrite('quitté avant carte complète');
+            };
+            window.addEventListener('pagehide', leave);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') leave();
+            });
+
+            window.NPF_LAUNCH_LOG = {
+                key: LAUNCH_LOG_KEY,
+                current: () => launch,
+                isWritten: () => written,
+                cost: () => ({ ...cost }),
+                /* v17.40 — messages en bandeau (remplacent les alertes) : même règle
+                 * que les alertes pendant les 60 premières secondes. */
+                noteDisplayedMessage: text => {
+                    try {
+                        if (performance.now() < 60000 && ERROR_TEXT_PATTERN.test(String(text || ''))) {
+                            addError('message affiché', text);
+                        }
+                    } catch (_) {}
+                },
+                refusedWrites: () => refusedWrites.slice(),
+                storageSummary,
+                readAll: () => {
+                    try {
+                        const list = JSON.parse(readRaw(LAUNCH_LOG_KEY) || '[]');
+                        return Array.isArray(list) ? list : [];
+                    } catch (_) {
+                        return [];
+                    }
+                }
+            };
+        })();
+
+        function clearLegacyPostUpdateNoticeMarkers() {
+            try {
+                localStorage.removeItem(POST_UPDATE_NOTICE_VERSION_KEY);
+                localStorage.removeItem(POST_UPDATE_NOTICE_PENDING_KEY);
+                localStorage.removeItem(POST_UPDATE_NOTICE_REMAINING_KEY);
+            } catch (_) {}
+            window.NPF_FORCE_POST_UPDATE_NOTICE = false;
+        }
+
+        /*
+         * v17.17 — les versions de mise à jour sont monotones : une page plus
+         * ancienne resservie temporairement par Safari/PWA ne doit jamais être
+         * interprétée comme une nouvelle installation ni faire régresser la
+         * version mémorisée.
+         */
+        function compareNpfNoticeVersions(left, right) {
+            const parse = value => {
+                const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)(?:\.(\d+))?/i);
+                return match
+                    ? [Number(match[1]), Number(match[2]), Number(match[3] || 0)]
+                    : null;
+            };
+            const a = parse(left);
+            const b = parse(right);
+            if (!a || !b) return String(left || '').localeCompare(String(right || ''));
+            for (let index = 0; index < 3; index += 1) {
+                if (a[index] !== b[index]) return a[index] - b[index];
+            }
+            return 0;
+        }
+
+        function markPostUpdateRestartNotice(version = APP_VERSION) {
+            try {
+                const highestSeenVersion = localStorage.getItem(APP_VERSION_STORAGE_KEY) || '';
+                const shownVersion = localStorage.getItem(
+                    POST_UPDATE_NOTICE_SHOWN_VERSION_KEY
+                ) || '';
+                const pendingVersion = localStorage.getItem(
+                    POST_UPDATE_NOTICE_VERSION_KEY
+                ) || '';
+
+                /*
+                 * Une ancienne page ne doit surtout pas effacer une notification
+                 * déjà armée pour la version courante plus récente.
+                 */
+                if (highestSeenVersion && compareNpfNoticeVersions(highestSeenVersion, version) > 0) {
+                    return;
+                }
+
+                if (shownVersion && compareNpfNoticeVersions(shownVersion, version) >= 0) {
+                    clearLegacyPostUpdateNoticeMarkers();
+                    return;
+                }
+
+                /* Ne jamais remplacer une notification déjà armée pour une version plus récente. */
+                if (pendingVersion && compareNpfNoticeVersions(pendingVersion, version) > 0) {
+                    return;
+                }
+
+                localStorage.setItem(POST_UPDATE_NOTICE_VERSION_KEY, version);
+                localStorage.setItem(POST_UPDATE_NOTICE_PENDING_KEY, '1');
+            } catch (_) {}
+        }
+
+        function shouldShowPostUpdateNotice() {
+            try {
+                const highestSeenVersion = localStorage.getItem(APP_VERSION_STORAGE_KEY) || '';
+                const shownVersion = localStorage.getItem(
+                    POST_UPDATE_NOTICE_SHOWN_VERSION_KEY
+                ) || '';
+
+                /* Une ancienne page revenue en cache n'a jamais le droit d'annoncer une MAJ. */
+                if (
+                    highestSeenVersion
+                    && compareNpfNoticeVersions(highestSeenVersion, APP_VERSION) > 0
+                ) {
+                    return false;
+                }
+
+                if (
+                    shownVersion
+                    && compareNpfNoticeVersions(shownVersion, APP_VERSION) >= 0
+                ) {
+                    clearLegacyPostUpdateNoticeMarkers();
+                    return false;
+                }
+
+                const pending = localStorage.getItem(
+                    POST_UPDATE_NOTICE_PENDING_KEY
+                ) === '1';
+                const noticeVersion = localStorage.getItem(
+                    POST_UPDATE_NOTICE_VERSION_KEY
+                ) || '';
+
+                return pending && noticeVersion === APP_VERSION;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function showNpfPostUpdateNoticeOnce() {
+            if (!document.body) return;
+            if (document.getElementById('post-update-restart-modal')) return;
+            if (!shouldShowPostUpdateNotice()) return;
+
+            /*
+             * v14.70 — le marqueur est consommé AVANT l'affichage.
+             * La v14.64 demandait de fermer immédiatement l'application mais ne
+             * supprimait le marqueur qu'après deux secondes : une fermeture rapide
+             * recréait donc la même alerte à chaque lancement.
+             */
+            try {
+                localStorage.setItem(
+                    POST_UPDATE_NOTICE_SHOWN_VERSION_KEY,
+                    APP_VERSION
+                );
+            } catch (_) {}
+            clearLegacyPostUpdateNoticeMarkers();
+
+            const modal = document.createElement('div');
+            modal.id = 'post-update-restart-modal';
+            modal.className = 'update-reminder-modal post-update-restart-modal';
+            modal.style.cssText = [
+                'position:fixed',
+                'inset:0',
+                'z-index:2147483647',
+                'display:flex',
+                'align-items:center',
+                'justify-content:center',
+                'padding:24px',
+                'box-sizing:border-box',
+                'background:rgba(0,0,0,.58)'
+            ].join(';');
+            modal.innerHTML = `
+                <div class="update-reminder-modal-content post-update-restart-modal-content" role="dialog" aria-modal="true" aria-labelledby="post-update-restart-title">
+                    <h3 id="post-update-restart-title">Mise à jour installée</h3>
+                    <p>NPF-Q400-RUN ${APP_VERSION}</p>
+                    <div style="display:flex;justify-content:center;margin-top:18px">
+                        <button id="post-update-continue-button" type="button" style="min-width:150px;padding:11px 18px;border:0;border-radius:10px;background:#0b5ed7;color:#fff;font:700 16px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">Continuer</button>
+                    </div>
+                </div>
+            `;
+
+            const content = modal.firstElementChild;
+            if (content) {
+                content.style.cssText = [
+                    'width:min(620px,calc(100vw - 48px))',
+                    'max-height:calc(100vh - 48px)',
+                    'overflow:auto',
+                    'box-sizing:border-box',
+                    'padding:24px',
+                    'border-radius:16px',
+                    'background:#fff',
+                    'color:#1f2937',
+                    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+                    'box-shadow:0 18px 50px rgba(0,0,0,.35)'
+                ].join(';');
+            }
+
+            const close = () => {
+                try { modal.remove(); } catch (_) {}
+            };
+            modal.addEventListener('click', event => {
+                if (event.target === modal) close();
+            });
+            document.addEventListener('keydown', function onNoticeKeydown(event) {
+                if (event.key !== 'Escape') return;
+                document.removeEventListener('keydown', onNoticeKeydown);
+                close();
+            });
+            document.body.appendChild(modal);
+            document.getElementById('post-update-continue-button')
+                ?.addEventListener('click', close, { once: true });
+        }
+        window.showNpfPostUpdateNoticeOnce = showNpfPostUpdateNoticeOnce;
+
+        // Migration immédiate des marqueurs bloqués laissés par la v14.64.
+        try {
+            const bootUrl = new URL(window.location.href);
+            const transitionVersion = bootUrl.searchParams.get(
+                POST_UPDATE_TRANSITION_PARAM
+            ) || '';
+            if (transitionVersion === APP_VERSION) {
+                markPostUpdateRestartNotice(APP_VERSION);
+            }
+            bootUrl.searchParams.delete(POST_UPDATE_TRANSITION_PARAM);
+            bootUrl.searchParams.delete('swrefresh');
+            if (bootUrl.toString() !== window.location.href) {
+                window.history.replaceState(
+                    null,
+                    '',
+                    `${bootUrl.pathname}${bootUrl.search}${bootUrl.hash}`
+                );
+            }
+        } catch (_) {}
+
+        try {
+            const storedVersionAtBoot = localStorage.getItem(
+                APP_VERSION_STORAGE_KEY
+            ) || '';
+            const bootVersionComparison = storedVersionAtBoot
+                ? compareNpfNoticeVersions(APP_VERSION, storedVersionAtBoot)
+                : 1;
+
+            /*
+             * v17.17 — annoncer uniquement une vraie montée de version.
+             * Si Safari ressert une page plus ancienne, ne jamais abaisser
+             * APP_VERSION_STORAGE_KEY : la prochaine ouverture de la version
+             * courante ne sera ainsi pas prise pour une nouvelle mise à jour.
+             */
+            if (storedVersionAtBoot && bootVersionComparison > 0) {
+                markPostUpdateRestartNotice(APP_VERSION);
+            }
+            if (!storedVersionAtBoot || bootVersionComparison > 0) {
+                localStorage.setItem(APP_VERSION_STORAGE_KEY, APP_VERSION);
+                sessionStorage.removeItem(SW_CONTROLLER_RELOAD_GUARD_KEY);
+            }
+        } catch (_) {}
+
+        // Sécurité : ne jamais laisser l'écran de démarrage bloquer indéfiniment.
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                try {
+                    if (document.body && !document.body.classList.contains('app-ready')) {
+                        document.body.classList.add('app-ready');
+                        document.documentElement.classList.add('app-ready');
+                    }
+                } catch (_) {}
+            }, 12000);
+        }, { once: true });
+
+        if ('serviceWorker' in navigator) {
+            /*
+             * Mise à jour automatique : le garde-fou est limité à la page
+             * courante. Un ancien marqueur sessionStorage ne doit plus empêcher
+             * une nouvelle prise de contrôle lors d'une mise à jour ultérieure.
+             */
+            let npfControllerReloadScheduled = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (npfControllerReloadScheduled) return;
+                npfControllerReloadScheduled = true;
+                try {
+                    const refreshUrl = new URL(window.location.href);
+                    refreshUrl.pathname = refreshUrl.pathname.replace(/[^/]*$/, 'index.html');
+                    /*
+                     * v16.32 — la page encore ouverte peut être l'ancienne version.
+                     * Ne surtout pas réinjecter son APP_VERSION dans l'URL après
+                     * controllerchange. On retire appv et on demande au nouveau SW
+                     * un shell réseau validé contre SA version active.
+                     */
+                    refreshUrl.searchParams.delete('appv');
+                    refreshUrl.searchParams.set('swrefresh', Date.now().toString());
+                    window.location.replace(refreshUrl.toString());
+                } catch (_) {
+                    window.location.reload();
+                }
+            });
+        }
+
+        window.forceRecoveryReload = async () => {
+            const forceButton = document.getElementById('force-update-button');
+            if (forceButton) {
+                forceButton.disabled = true;
+                forceButton.textContent = '⏳ MAJ...';
+            }
+
+            try {
+                if ('serviceWorker' in navigator) {
+                    const registration = await navigator.serviceWorker.register(
+                        SERVICE_WORKER_URL,
+                        { updateViaCache: 'none' }
+                    );
+                    if (registration && typeof registration.update === 'function') {
+                        await Promise.race([
+                            registration.update(),
+                            new Promise(resolve => setTimeout(resolve, 4500))
+                        ]).catch(() => null);
+                    }
+                    registration?.waiting?.postMessage({ type: 'SKIP_WAITING' });
+                }
+            } catch (error) {
+                console.log('Mise à jour service worker différée:', error);
+            }
+
+            const refreshUrl = new URL(window.location.href);
+            refreshUrl.pathname = refreshUrl.pathname.replace(/[^/]*$/, 'index.html');
+            refreshUrl.searchParams.set('appv', APP_VERSION);
+            refreshUrl.searchParams.set('ts', Date.now().toString());
+            window.location.replace(refreshUrl.toString());
+        };
+
+        if ('serviceWorker' in navigator) {
+            const watchedRegistrations = new WeakSet();
+            const SW_UPDATE_RETRY_DELAY_MS = 5000;
+            const SW_UPDATE_RETRY_WINDOW_MS = 65000;
+            const SW_UPDATE_DIAG_STORAGE_KEY = 'npfSwUpdateDiagV1';
+            let swUpdateRetryTimer = 0;
+            let swUpdateRetryStartedAt = 0;
+            let swUpdateAttempt = 0;
+            let swUpdateStopped = false;
+
+            /*
+             * v16.36 — journal court persistant : les événements d'une transition
+             * peuvent survivre au controllerchange/rechargement et apparaître dans
+             * l'export DIAG de la nouvelle page.
+             */
+            const recordSwUpdateDiag = (stage, detail = '') => {
+                try {
+                    const now = Date.now();
+                    const previous = JSON.parse(sessionStorage.getItem(SW_UPDATE_DIAG_STORAGE_KEY) || '[]');
+                    const recent = Array.isArray(previous)
+                        ? previous.filter(item => item && Number(item.at) >= now - 15 * 60 * 1000)
+                        : [];
+                    recent.push({ at: now, stage: String(stage || ''), detail: String(detail || '') });
+                    sessionStorage.setItem(SW_UPDATE_DIAG_STORAGE_KEY, JSON.stringify(recent.slice(-40)));
+                } catch (_) {}
+                try {
+                    const diag = window.NPF_STARTUP_DIAGNOSTIC;
+                    if (diag && typeof diag.mark === 'function') {
+                        const key = `sw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                        diag.mark(key, `PWA MAJ — ${stage}`, detail);
+                    }
+                } catch (_) {}
+            };
+            window.NPF_SW_UPDATE_DIAG_STORAGE_KEY = SW_UPDATE_DIAG_STORAGE_KEY;
+
+            const activateWaitingServiceWorker = registration => {
+                try {
+                    if (registration?.waiting) {
+                        recordSwUpdateDiag('waiting', 'activation demandée');
+                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    }
+                } catch (_) {}
+            };
+
+            const watchServiceWorkerUpdate = registration => {
+                if (!registration || watchedRegistrations.has(registration)) return;
+                watchedRegistrations.add(registration);
+                registration.addEventListener('updatefound', () => {
+                    recordSwUpdateDiag('updatefound', `tentative ${swUpdateAttempt || 1}`);
+                    const worker = registration.installing;
+                    if (!worker) return;
+                    recordSwUpdateDiag('installing', worker.state || 'installing');
+                    worker.addEventListener('statechange', () => {
+                        recordSwUpdateDiag(worker.state || 'statechange');
+                        if (worker.state === 'installed') {
+                            try { worker.postMessage({ type: 'SKIP_WAITING' }); } catch (_) {}
+                        }
+                        if (worker.state === 'redundant') {
+                            /* Échec d'installation atomique : la boucle de retry page continue. */
+                            scheduleServiceWorkerRetry(registration, 1200);
+                        }
+                    });
+                });
+            };
+
+            const askControllerVersion = async (timeoutMs = 900) => {
+                if (!navigator.serviceWorker.controller || typeof MessageChannel === 'undefined') return '';
+                return await new Promise(resolve => {
+                    let done = false;
+                    const finish = version => {
+                        if (done) return;
+                        done = true;
+                        resolve(String(version || ''));
+                    };
+                    const timer = setTimeout(() => finish(''), timeoutMs);
+                    try {
+                        const channel = new MessageChannel();
+                        channel.port1.onmessage = event => {
+                            clearTimeout(timer);
+                            finish(event?.data?.version || '');
+                        };
+                        navigator.serviceWorker.controller.postMessage(
+                            { type: 'GET_SW_VERSION' },
+                            [channel.port2]
+                        );
+                    } catch (_) {
+                        clearTimeout(timer);
+                        finish('');
+                    }
+                });
+            };
+
+            const stopServiceWorkerRetryIfCurrent = async () => {
+                const controlledVersion = await askControllerVersion();
+                if (controlledVersion === APP_VERSION) {
+                    swUpdateStopped = true;
+                    if (swUpdateRetryTimer) clearTimeout(swUpdateRetryTimer);
+                    swUpdateRetryTimer = 0;
+                    recordSwUpdateDiag('active', controlledVersion);
+                    return true;
+                }
+                return false;
+            };
+
+            const scheduleServiceWorkerRetry = (registration, delayMs = SW_UPDATE_RETRY_DELAY_MS) => {
+                if (swUpdateStopped || swUpdateRetryTimer) return;
+                if (!swUpdateRetryStartedAt) swUpdateRetryStartedAt = Date.now();
+                if (Date.now() - swUpdateRetryStartedAt >= SW_UPDATE_RETRY_WINDOW_MS) {
+                    recordSwUpdateDiag('retry-stop', `${swUpdateAttempt} tentatives`);
+                    return;
+                }
+                swUpdateRetryTimer = setTimeout(async () => {
+                    swUpdateRetryTimer = 0;
+                    await runServiceWorkerUpdateAttempt(registration);
+                }, Math.max(500, Number(delayMs) || SW_UPDATE_RETRY_DELAY_MS));
+            };
+
+            const runServiceWorkerUpdateAttempt = async registration => {
+                if (!registration || swUpdateStopped) return;
+
+                /*
+                 * v16.44 — effectuer AU MOINS une vraie `registration.update()`
+                 * à chaque lancement différé. Le fait que le contrôleur courant
+                 * ait la même version que la page ne prouve pas qu'une version
+                 * plus récente n'est pas déjà disponible sur GitHub.
+                 */
+                swUpdateAttempt += 1;
+                recordSwUpdateDiag('check', `tentative ${swUpdateAttempt}`);
+                activateWaitingServiceWorker(registration);
+
+                try {
+                    if (typeof registration.update === 'function') {
+                        await Promise.race([
+                            registration.update(),
+                            new Promise(resolve => setTimeout(resolve, 4500))
+                        ]).catch(() => null);
+                    }
+                } catch (error) {
+                    recordSwUpdateDiag('check-error', error?.message || String(error || ''));
+                }
+
+                activateWaitingServiceWorker(registration);
+
+                if (registration.installing || registration.waiting) {
+                    scheduleServiceWorkerRetry(registration);
+                    return;
+                }
+
+                const controlledVersion = await askControllerVersion();
+                if (controlledVersion === APP_VERSION) {
+                    swUpdateStopped = true;
+                    if (swUpdateRetryTimer) clearTimeout(swUpdateRetryTimer);
+                    swUpdateRetryTimer = 0;
+                    recordSwUpdateDiag('active', controlledVersion);
+                    return;
+                }
+
+                scheduleServiceWorkerRetry(registration);
+            };
+
+            const getOrRegisterServiceWorker = async ({ allowRegister = true } = {}) => {
+                try {
+                    let registration = await navigator.serviceWorker.getRegistration();
+                    if (!registration && allowRegister) {
+                        registration = await navigator.serviceWorker.register(
+                            SERVICE_WORKER_URL,
+                            { updateViaCache: 'none' }
+                        );
+                    }
+                    if (registration) {
+                        watchServiceWorkerUpdate(registration);
+                        activateWaitingServiceWorker(registration);
+                    }
+                    return registration || null;
+                } catch (error) {
+                    console.log('Erreur accès Service Worker:', error);
+                    recordSwUpdateDiag('register-error', error?.message || String(error || ''));
+                    return null;
+                }
+            };
+
+            let swUpdateFlowStarted = false;
+            const startDeferredServiceWorkerUpdateFlow = async (reason = 'deferred') => {
+                if (swUpdateFlowStarted) return;
+                swUpdateFlowStarted = true;
+                recordSwUpdateDiag('check-start', reason);
+
+                const registration = await getOrRegisterServiceWorker({ allowRegister: true });
+                if (!registration) return;
+
+                if (!swUpdateRetryStartedAt) swUpdateRetryStartedAt = Date.now();
+                await runServiceWorkerUpdateAttempt(registration);
+                scheduleServiceWorkerRetry(registration);
+            };
+
+            navigator.serviceWorker.addEventListener('message', event => {
+                const data = event?.data || {};
+                if (data.type !== 'NPF_SW_INSTALL_STAGE') return;
+                recordSwUpdateDiag(
+                    `sw-${String(data.stage || 'install')}`,
+                    data.detail || ''
+                );
+            });
+
+            window.addEventListener('load', async () => {
+                recordSwUpdateDiag('load', APP_VERSION);
+
+                /*
+                 * v16.44 — ne plus provoquer la recherche d'une nouvelle version
+                 * pendant le chemin critique de démarrage quand un SW contrôle déjà
+                 * la PWA. `register()` peut lui-même déclencher une vérification :
+                 * on utilise donc d'abord la registration existante, puis on attend
+                 * `npf-startup-core-ready` avant le premier `registration.update()`.
+                 */
+                if (navigator.serviceWorker.controller) {
+                    const registration = await getOrRegisterServiceWorker({ allowRegister: false });
+                    if (registration) watchServiceWorkerUpdate(registration);
+
+                    let deferredTimer = 0;
+                    const startAfterCore = () => {
+                        if (deferredTimer || swUpdateFlowStarted) return;
+                        recordSwUpdateDiag('check-deferred', 'après démarrage principal');
+                        deferredTimer = setTimeout(() => {
+                            deferredTimer = 0;
+                            startDeferredServiceWorkerUpdateFlow('core-ready + 5000 ms');
+                        }, 5000);
+                    };
+
+                    window.addEventListener('npf-startup-core-ready', startAfterCore, { once: true });
+                    if (window.NPF_STARTUP_CORE_READY === true) {
+                        startAfterCore();
+                    }
+
+                    /* Sécurité : si l'événement n'arrive pas, vérifier plus tard sans bloquer le démarrage. */
+                    setTimeout(() => {
+                        if (!swUpdateFlowStarted) {
+                            startDeferredServiceWorkerUpdateFlow('fallback 18000 ms');
+                        }
+                    }, 18000);
+                    return;
+                }
+
+                /* Première installation / absence réelle de contrôleur : comportement immédiat conservé. */
+                const registration = await getOrRegisterServiceWorker({ allowRegister: true });
+                try {
+                    if (!navigator.serviceWorker.controller) {
+                        const guardKey = `${SW_CONTROLLER_RELOAD_GUARD_KEY}:offline:${APP_VERSION}`;
+                        await Promise.race([
+                            navigator.serviceWorker.ready,
+                            new Promise(resolve => setTimeout(resolve, 2500))
+                        ]).catch(() => null);
+                        if (
+                            !navigator.serviceWorker.controller
+                            && sessionStorage.getItem(guardKey) !== '1'
+                        ) {
+                            sessionStorage.setItem(guardKey, '1');
+                            const refreshUrl = new URL(window.location.href);
+                            refreshUrl.searchParams.set('appv', APP_VERSION);
+                            refreshUrl.searchParams.set('swctl', Date.now().toString());
+                            recordSwUpdateDiag('no-controller', 'rechargement de prise de contrôle');
+                            window.location.replace(refreshUrl.toString());
+                            return;
+                        }
+                    }
+                    if (registration) {
+                        swUpdateFlowStarted = true;
+                        if (!swUpdateRetryStartedAt) swUpdateRetryStartedAt = Date.now();
+                        await runServiceWorkerUpdateAttempt(registration);
+                        scheduleServiceWorkerRetry(registration);
+                    }
+                } catch (_) {}
+            }, { once: true });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            showNpfPostUpdateNoticeOnce();
+            const mainVersionDisplay = document.getElementById('app-version-display');
+            if (mainVersionDisplay) mainVersionDisplay.textContent = APP_VERSION;
+
+            const earlyForceButton = document.getElementById('force-update-button');
+            if (earlyForceButton) {
+                earlyForceButton.addEventListener('click', () => {
+                    window.forceRecoveryReload();
+                });
+            }
+        });
+    </script>
+    <script src="leaflet.min.js"></script>
+    <script src="suncalc.js"></script>
+    <script src="jszip.min.js"></script>
+    <script src="sia.js?siav=sia-2026-10-29-v02-g15-run"></script>
+    <script src="script.js?appv=v1.6"></script>
+    
+    <div id="fuel-split-modal" class="fuel-split-modal" style="display: none;">
+        <div class="fuel-split-modal-content">
+            <button id="fuel-split-close-btn" class="fuel-split-close-btn" type="button" title="Fermer">&times;</button>
+            <h3>Saisie carburant</h3>
+            <div class="fuel-split-tanks-row">
+                <label class="fuel-split-field">
+                    <span>G</span>
+                    <input type="text" id="fuel-split-left" inputmode="numeric" autocomplete="off">
+                </label>
+                <label class="fuel-split-field">
+                    <span>D</span>
+                    <input type="text" id="fuel-split-right" inputmode="numeric" autocomplete="off">
+                </label>
+            </div>
+            <label class="fuel-split-total-field">
+                <span>TOTAL</span>
+                <input type="text" id="fuel-split-total" inputmode="numeric" autocomplete="off">
+            </label>
+            <div class="fuel-split-actions">
+                <button type="button" id="fuel-split-clear-btn">Effacer</button>
+                <button type="button" id="fuel-split-cancel-btn">Annuler</button>
+                <button type="button" id="fuel-split-validate-btn">Valider</button>
+            </div>
+        </div>
+    </div>
+    <div id="calculator-modal" style="display: none;">
+        <div class="main-container">
+            <button id="close-calculator-btn">&times;</button>
+            <div class="onglets-navigation">
+                <button class="onglet-bouton active" data-onglet="previ-rotations">PREVI. NBR LARGAGES</button>
+                <button class="onglet-bouton" data-onglet="bloc-fuel">BLOC / FUEL</button>
+                <button class="onglet-bouton" data-onglet="suivi-rotations">SUIVI LARGAGES</button>
+                <button class="onglet-bouton" data-onglet="deroutement">DEROUT. / GAAR</button>
+            </div>
+            <div class="onglets-conteneur">
+                <div class="onglet-panneau active" id="previ-rotations">
+                    <div class="header-section previ-shared-header-section">
+                        <div class="header-item"><label id="previ-bloc-depart-label">HEURE TO</label><div id="previ-bloc-depart" class="input-wrapper time-input-wrapper"><input type="text" class="display-input" readonly placeholder="--:--"><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                        <div class="header-item"><label>FUEL Départ</label><div id="previ-fuel-depart" class="input-wrapper numeric-input-wrapper fuel-split-input-wrapper" data-unit="kg"><input type="text" class="display-input" inputmode="numeric" placeholder="[valeur]"><span class="clear-btn">&times;</span></div></div>
+                        <div class="header-item base-oaci-header-item"><label id="previ-cs-base-label">Base</label><div class="input-wrapper base-oaci-input-wrapper"><input type="text" id="previ-base-oaci-input" class="display-input base-oaci-input" inputmode="text" maxlength="4" placeholder="OACI" autocomplete="off" autocapitalize="characters" spellcheck="false"><input type="text" id="previ-cs-lftw-display" class="display-input base-sunset-hidden" readonly tabindex="-1" aria-hidden="true"></div></div>
+                        <div class="header-item"><label>TMD</label><div id="previ-tmd" class="input-wrapper time-input-wrapper" data-sync-target="tmd"><input type="text" class="display-input" readonly><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                        <div class="header-item"><label>LIMITE HDV</label><div id="previ-limite-hdv" class="input-wrapper time-input-wrapper" data-sync-target="limite-hdv"><input type="text" class="display-input" readonly><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                    </div>
+
+                    <div class="analyse-grid">
+                        <div class="analyse-col">
+                            <span id="previ-bingo-base" class="previ-hidden-bingo-value">-- kg</span>
+                            <div class="rotations-group">
+                                <h3 class="analyse-col-title">NBR LARGAGES POSSIBLES</h3>
+                                <div id="previ-rotation-results-container">
+                                    <div class="result-line" data-rotation-type="base"><span class="label">FUEL RETOUR BASE :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="pelic"><span class="label">FUEL RETOUR PELIC :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="cs"><span class="label">COUCHER SOLEIL :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="tmd"><span class="label">TMD :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="hdv"><span class="label">HDV RESTANTES :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="analyse-col">
+                            <span id="previ-bingo-pelic" class="previ-hidden-bingo-value">-- kg</span>
+                            <div class="rotations-group previ-details-group">
+                                <h3 class="analyse-col-title" style="visibility: hidden;">&nbsp;</h3>
+                                <div class="result-line"><span class="label">CS sur Feu :</span><span class="value" id="cs-sur-feu">--:--</span></div>
+                                <div class="result-line"><span class="label">Heure sur Feu :<span id="heure-sur-feu-help" class="formula-help-icon">?</span></span><span class="value" id="heure-sur-feu">--:--</span></div>
+                                <div class="result-line"><span class="label">Durée Transit :<span id="duree-transit-help" class="formula-help-icon">?</span></span><span class="value" id="duree-transit">--:--</span></div>
+                                <div class="result-line"><span class="label">Conso Transit :<span id="conso-aller-feu-help" class="formula-help-icon">?</span></span><span class="value" id="conso-aller-feu">-- kg</span></div>
+                                <div class="result-line"><span class="label">Fuel sur Feu :<span id="fuel-sur-feu-help" class="formula-help-icon">?</span></span><span class="value" id="fuel-sur-feu">-- kg</span></div>
+                                <div class="result-line"><span class="label">Durée Rotation :<span id="duree-rotation-help" class="formula-help-icon">?</span></span><span class="value" id="duree-rotation">--:--</span></div>
+                                <div class="result-line"><span class="label">Conso Rotation :<span id="conso-par-rotation-help" class="formula-help-icon">?</span></span><span class="value" id="conso-par-rotation">-- kg</span></div>
+                                <div class="result-line previ-hidden-detail" style="display:none;"><span class="label">TMD :</span><span class="value" id="tmd-display">--:--</span></div>
+                                <div class="result-line previ-hidden-detail" style="display:none;"><span class="label">HdV restant :</span><span class="value" id="hdv-restant-display">--:--</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                  
+<div class="onglet-panneau" id="bloc-fuel">
+                    <div class="header-section">
+                        <div class="header-item"><label id="bloc-depart-label">BLOC DÉPART</label><div id="bloc-depart" class="input-wrapper time-input-wrapper"><input type="text" class="display-input" readonly placeholder="--:--"><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                        <div class="header-item"><label>FUEL Départ</label><div id="fuel-depart" class="input-wrapper numeric-input-wrapper fuel-split-input-wrapper" data-unit="kg"><input type="text" class="display-input" inputmode="numeric" placeholder="[valeur]"><span class="clear-btn">&times;</span></div></div>
+                        <div class="header-item rlt-depart-header-item"><label>RLT</label><div id="rlt-depart" class="input-wrapper numeric-input-wrapper" data-unit="kg"><input type="text" class="display-input" inputmode="numeric" placeholder="[kg]"><span class="clear-btn">&times;</span></div></div>
+                        <div class="header-item base-oaci-header-item"><label id="cs-base-label">Base</label><div class="input-wrapper base-oaci-input-wrapper"><input type="text" id="base-oaci-input" class="display-input base-oaci-input" inputmode="text" maxlength="4" placeholder="OACI" autocomplete="off" autocapitalize="characters" spellcheck="false"><input type="text" id="cs-lftw-display" class="display-input base-sunset-hidden" readonly tabindex="-1" aria-hidden="true"></div></div>
+                        <div class="header-item"><label>TMD</label><div id="tmd" class="input-wrapper time-input-wrapper"><input type="text" class="display-input" readonly><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                        <div class="header-item"><label>LIMITE HDV</label><div id="limite-hdv" class="input-wrapper time-input-wrapper"><input type="text" class="display-input" readonly><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                    </div>
+                    <div class="flight-manager-bar" id="flight-manager-bar">
+                        <label for="flight-select" class="sr-only">Sélection du vol</label>
+                        <select id="flight-select" aria-label="Sélection du vol"></select>
+                        <button id="close-flight-btn" type="button">Clôturer</button>
+                        <button id="delete-flight-btn" type="button">Supprimer</button>
+                        <button id="export-bloc-fuel-pdf-btn" type="button" title="Exporter / imprimer tous les vols BLOC/FUEL">Export PDF</button>
+                        <span id="flight-duration-summary" class="flight-duration-summary" aria-live="polite"></span>
+                        <span id="flight-lock-status" class="flight-lock-status" aria-live="polite"></span>
+                    </div>
+                    <div class="table-wrapper"><table class="table-section"><thead><tr><th>BLOC Arrivée</th><th>FUEL Pélic.</th><th>OACI</th><th>Masse<br>Rlt</th><th>Durée<br>Rotations</th><th>Fuel<br>Rotations</th><th>Tps de Vol</th><th>Tps de Vol Restant</th></tr></thead><tbody></tbody></table></div>
+                </div>
+                  
+<div class="onglet-panneau" id="suivi-rotations">
+                    <div class="analyse-grid">
+                        <div class="analyse-col">
+                            <div class="bingo-group"><div class="result-line"><span class="label base-bingo-label">BINGO BASE</span><span class="value" id="suivi-bingo-base">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="rotations-group rotation-count-group">
+                                <h3 class="analyse-col-title">Nbr Largages Restants</h3>
+                                    
+<div id="suivi-rotation-results-container" class="rotation-results-container">
+                                    <div class="result-line" data-rotation-type="base"><span class="label">FUEL RETOUR BASE :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="pelic"><span class="label">FUEL RETOUR PELIC :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="cs"><span class="label">COUCHER SOLEIL :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="tmd"><span class="label">TMD :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="hdv"><span class="label">HDV RESTANTES :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                </div>
+                                  
+                            </div>
+                        </div>
+                        <div class="analyse-col">
+                            <div class="bingo-group"><div class="result-line"><span class="label">BINGO PELIC</span><span class="value" id="suivi-bingo-pelic">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="rotations-group rotation-details-group">
+                                 <h3 class="analyse-col-title" style="visibility: hidden;">&nbsp;</h3>
+                                <div class="result-line"><span class="label">CS sur Feu :</span><span class="value" id="suivi-cs-sur-feu">--:--</span></div>
+                                <div class="result-line"><span class="label">Heure sur Feu :<span id="suivi-heure-sur-feu-help" class="formula-help-icon">?</span></span><span class="value" id="suivi-heure-sur-feu">--:--</span></div>
+                                <div class="result-line"><span class="label">Durée Transit Pélic&lt;-&gt;Feu :<span id="suivi-duree-transit-help" class="formula-help-icon">?</span></span><span class="value" id="suivi-duree-transit">--:--</span></div>
+                                <div class="result-line suivi-fuel-sur-feu-line"><span class="label">Fuel sur Feu :<span id="suivi-fuel-sur-feu-help" class="formula-help-icon">?</span></span><span class="value" id="suivi-fuel-sur-feu">-- kg</span></div>
+                                <div class="result-line suivi-duree-rotation-line"><span class="label">Durée Rotation :<span id="suivi-duree-rotation-help" class="formula-help-icon">?</span></span><div style="display: flex; align-items: center;"><div id="suivi-duree-rotation-wrapper" class="input-wrapper time-input-wrapper"><input type="text" class="display-input manual-input" readonly><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div><button class="manual-btn" id="suivi-duree-rotation-manual-btn">AUTO</button></div></div>
+                                <div class="result-line"><span class="label">Conso Rotation :<span id="suivi-conso-rotation-help" class="formula-help-icon">?</span></span><div style="display: flex; align-items: center;"><div id="suivi-conso-rotation-wrapper" class="input-wrapper numeric-input-wrapper" data-unit="kg"><input type="text" class="display-input manual-input" inputmode="numeric" readonly><span class="clear-btn">&times;</span></div><button class="manual-btn" id="suivi-conso-rotation-manual-btn">AUTO</button></div></div>
+                                <div class="result-line suivi-hidden-detail" style="display:none;"><span class="label">Fuel Pélic. Actuel :</span><span class="value" id="suivi-fuel-actuel">-- kg</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="placeholder-message" style="display: none;">Veuillez saisir au moins une ligne dans l'onglet "BLOC / FUEL" pour activer le suivi.</div>
+                </div>
+                  
+<div class="onglet-panneau" id="deroutement">
+                    <div class="analyse-grid">
+                         <div class="analyse-col">
+                            <div class="bingo-group"><div class="result-line"><span class="label base-bingo-label">BINGO BASE</span><span class="value" id="derout-bingo-base">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="rotations-group derout-fuel-mini-group">
+                                <h3 class="analyse-col-title">FUEL MINI</h3>
+                                <div class="result-line derout-fuel-mini-base-line"><span class="label"><span id="derout-fuel-mini-base-label">Fuel mini 1 Lrg / BASE (FMEP) :</span><span id="derout-fuel-mini-base-help" class="formula-help-icon">?</span></span><span class="value" id="derout-fuel-mini-base">-- kg</span></div>
+                                <div class="result-line"><span class="label"><span id="derout-fuel-mini-pelic-label">Fuel mini 1 Lrg / Pélic :</span><span id="derout-fuel-mini-pelic-help" class="formula-help-icon">?</span></span><span class="value" id="derout-fuel-mini-pelic">-- kg</span></div>
+                            </div>
+                            <div class="rotations-group rotation-count-group">
+                                <h3 class="analyse-col-title">Nbr Largages Possibles</h3>
+                                <div id="derout-rotation-results-container" class="rotation-results-container">
+                                    <div class="result-line" data-rotation-type="base"><span class="label">FUEL RETOUR BASE :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="pelic"><span class="label">FUEL RETOUR PELIC :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="cs"><span class="label">COUCHER SOLEIL :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="tmd"><span class="label">TMD :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                    <div class="result-line" data-rotation-type="hdv"><span class="label">HDV RESTANTES :<span class="formula-help-icon">?</span></span><span class="value">--</span></div>
+                                </div>
+                            </div>
+                            <div class="derout-gps-status-row derout-gps-status-row-outside">
+                                <button id="refresh-gps-btn">🛰️ Rafraîchir GPS</button>
+                                <span id="derout-gps-status" class="derout-gps-status">GPS non disponible</span>
+                            </div>
+                        </div>
+                        <div class="analyse-col">
+                            <div class="bingo-group"><div class="result-line"><span class="label">BINGO PELIC</span><span class="value" id="derout-bingo-pelic">-- kg</span></div></div><hr class="analyse-separator">
+                            <div class="rotations-group rotation-details-group">
+                                 <h3 class="analyse-col-title" style="visibility: hidden;">&nbsp;</h3>
+                                <div class="result-line"><span class="label">Fuel actuel :</span><div id="deroutement-fuel-wrapper" class="input-wrapper numeric-input-wrapper fuel-split-input-wrapper" data-unit="kg"><input type="text" class="display-input manual-input" inputmode="numeric"><span class="clear-btn">&times;</span></div></div>
+                                <div class="result-line derout-current-time-line"><span class="label">Heure actuelle :</span><div id="deroutement-heure-wrapper" class="input-wrapper time-input-wrapper"><input type="text" class="display-input" readonly><span class="clear-btn">&times;</span><span class="clock-icon">🕒</span><input type="time" class="engine-input"></div></div>
+                                <div class="result-line derout-empty-retardant-line"><span class="label">Vide retardant :</span><label class="derout-empty-retardant-toggle"><input type="checkbox" id="derout-empty-retardant-checkbox"><span>Retour Pélic avant feu</span></label></div>
+                                <div class="result-line derout-cs-sur-feu-line"><span class="label">CS sur Feu :</span><span class="value" id="derout-cs-sur-feu">--:--</span></div>
+                                <div class="result-line"><span class="label">Heure sur Feu :<span id="derout-heure-sur-feu-help" class="formula-help-icon">?</span></span><span class="value" id="derout-heure-sur-feu">--:--</span></div>
+                                <div class="result-line derout-readonly-rotation-line"><span class="label">Durée Rotation :<span id="derout-duree-rotation-help" class="formula-help-icon">?</span></span><span class="value" id="derout-duree-rotation">--:--</span></div>
+                                <div class="result-line derout-readonly-rotation-line derout-conso-rotation-line"><span class="label">Conso Rotation :<span id="derout-conso-rotation-help" class="formula-help-icon">?</span></span><span class="value" id="derout-conso-rotation">-- kg</span></div>
+                                
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+  
+            </div>
+            <button id="reset-all-btn" title="Réinitialiser le tableau">🗑️</button>
+        </div>
+    </div>
+          
+<div id="rlt-mass-modal" class="rlt-mass-modal" style="display: none;" aria-hidden="true">
+        <div class="rlt-mass-modal-content">
+            <h3>Volume/Masse retardant</h3>
+            <button id="rlt-first-full-btn" class="rlt-first-full-btn" type="button" hidden>Plein au départ</button>
+            <div class="rlt-refracto-row" data-rlt-mode="refractoToDensity">
+                <label>Réfracto.
+                    <input id="rlt-refracto-input" type="text" inputmode="decimal" autocomplete="off" placeholder="ex. 14,5">
+                </label>
+                <span>=</span>
+                <label>Densité
+                    <input id="rlt-refracto-density-output" class="rlt-mass-result-input" type="text" inputmode="decimal" autocomplete="off" placeholder="kg/L" readonly tabindex="-1" aria-readonly="true">
+                </label>
+            </div>
+            <div class="rlt-mass-formula-row rlt-mass-formula-row-primary" data-rlt-mode="massToVolume">
+                <label>Masse
+                    <input id="rlt-mass-to-volume-mass-input" type="text" inputmode="decimal" autocomplete="off" placeholder="kg">
+                </label>
+                <span>÷</span>
+                <label>Densité
+                    <input id="rlt-mass-to-volume-density-input" type="text" inputmode="decimal" autocomplete="off" placeholder="kg/L">
+                </label>
+                <span>=</span>
+                <label>Volume
+                    <input id="rlt-mass-to-volume-volume-input" class="rlt-mass-result-input" type="text" inputmode="decimal" autocomplete="off" placeholder="L" readonly tabindex="-1" aria-readonly="true">
+                </label>
+            </div>
+            <div class="rlt-mass-formula-row" data-rlt-mode="volumeToMass">
+                <label>Volume
+                    <input id="rlt-volume-input" type="text" inputmode="decimal" autocomplete="off" placeholder="L">
+                </label>
+                <span>×</span>
+                <label>Densité
+                    <input id="rlt-density-input" type="text" inputmode="decimal" autocomplete="off" placeholder="kg/L">
+                </label>
+                <span>=</span>
+                <label>Masse
+                    <input id="rlt-mass-input" class="rlt-mass-result-input" type="text" inputmode="decimal" autocomplete="off" placeholder="kg" readonly tabindex="-1" aria-readonly="true">
+                </label>
+            </div>
+            <div class="rlt-mass-actions">
+                <button id="rlt-mass-cancel-btn" type="button">Annuler</button>
+                <button id="rlt-mass-clear-btn" type="button">Effacer</button>
+                <button id="rlt-mass-validate-btn" type="button">Valider</button>
+            </div>
+        </div>
+    </div>
+
+<div id="offline-map-modal" style="display: none;">
+        <div class="main-container">
+            <button id="close-offline-map-btn">&times;</button>
+            <h2>Gestion des Cartes</h2>
+            
+            <div class="modal-content">
+                <div class="import-section">
+                    <button id="simulation-mode-button" type="button" class="simulation-mode-button">Mode simulation avion</button>
+                </div>
+
+                <div class="vac-management-section notams-management-section">
+                    <h3 class="maps-management-title">NOTAM</h3>
+                    <p>
+                        NOTAM SOFIA des 114 terrains NPF-Q400 (recherches automatiques à 06h30 et 10h00,
+                        et à la première connexion du jour), stockés sur cet appareil pour une utilisation hors ligne.
+                    </p>
+                    <div class="vac-management-actions">
+                        <button id="notams-refresh-button" type="button" class="import-button">
+                            Rafraîchir les NOTAM
+                        </button>
+                    </div>
+                    <div id="notams-refresh-status" class="vac-installed-status notams-refresh-status" aria-live="polite">
+                        Vérification de la copie locale…
+                    </div>
+                    <div id="notams-refresh-progress" class="vac-download-progress" style="display: none;">
+                        <div class="vac-download-progress-track">
+                            <div id="notams-refresh-progress-bar" class="vac-download-progress-bar"></div>
+                        </div>
+                        <div id="notams-refresh-progress-text" class="vac-download-progress-text"></div>
+                    </div>
+                </div>
+
+                <div class="map-source-management-section">
+                    <h3 class="maps-management-title">Type Carte</h3>
+                    <div class="map-source-buttons">
+                        <button type="button" id="map-source-online-btn" class="map-source-btn map-source-btn-online active">ONLINE</button>
+                        <button type="button" id="map-source-offline-btn" class="map-source-btn map-source-btn-offline">OFFLINE</button>
+                    </div>
+                </div>
+
+                <div id="import-progress-section" style="display: none;">
+                    <p id="import-status-message">Importation en cours...</p>
+                    <div class="progress-bar-container">
+                        <div id="import-progress-bar" class="progress-bar"></div>
+                    </div>
+                </div>
+
+                <div class="installed-maps-section offline-maps-management-section">
+                    <h3 class="maps-management-title">Cartes Offline</h3>
+                    <div class="import-help-row npf-map-download-row">
+                        <button type="button" id="npf-map-download-button" class="import-button">Télécharger la carte NPF-Q400</button>
+                        <button type="button" class="import-help-button npf-map-download-help-spacer" tabindex="-1" aria-hidden="true">?</button>
+                    </div>
+                    <div id="npf-map-download-progress" class="vac-download-progress npf-map-download-progress" style="display: none;">
+                        <div id="npf-map-download-advice" class="npf-map-download-advice">Garde l'app ouverte au premier plan et l'écran allumé.</div>
+                        <div class="vac-download-progress-track">
+                            <div id="npf-map-download-progress-bar" class="vac-download-progress-bar"></div>
+                        </div>
+                        <div id="npf-map-download-progress-text" class="vac-download-progress-text" aria-live="polite"></div>
+                    </div>
+                    <!-- v17.80 — carte installée, nouvelle carte disponible (carte V11 : noms des communes toujours affichés depuis v17.87). -->
+                    <div id="npf-map-installed-status" class="npf-map-installed-status"></div>
+                    <!-- RUN v1.2 — sources de la carte La Réunion (relief : licence Etalab). -->
+                    <div class="npf-map-sources">Sources de la carte : © OpenStreetMap (ODbL) ; relief et altitudes : IGN – RGE ALTI (Licence Ouverte Etalab 2.0).</div>
+                    <div class="import-help-row npf-map-download-row npf-run-section-masquee">
+                        <button type="button" id="oaci500-download-button" class="import-button">Télécharger la carte OACI 1/500 000 (670 Mo)</button>
+                        <button type="button" class="import-help-button npf-map-download-help-spacer" tabindex="-1" aria-hidden="true">?</button>
+                    </div>
+                    <div id="oaci500-download-progress" class="vac-download-progress npf-map-download-progress npf-run-section-masquee" style="display: none;">
+                        <div id="oaci500-download-advice" class="npf-map-download-advice">Garde l'app ouverte au premier plan et l'écran allumé.</div>
+                        <div class="vac-download-progress-track">
+                            <div id="oaci500-download-progress-bar" class="vac-download-progress-bar"></div>
+                        </div>
+                        <div id="oaci500-download-progress-text" class="vac-download-progress-text" aria-live="polite"></div>
+                    </div>
+                    <div class="import-help-row npf-map-download-row npf-run-section-masquee">
+                        <button type="button" id="oaci-download-button" class="import-button">Télécharger la carte OACI (245 Mo)</button>
+                        <button type="button" class="import-help-button npf-map-download-help-spacer" tabindex="-1" aria-hidden="true">?</button>
+                    </div>
+                    <div id="oaci-download-progress" class="vac-download-progress npf-map-download-progress npf-run-section-masquee" style="display: none;">
+                        <div id="oaci-download-advice" class="npf-map-download-advice">Garde l'app ouverte au premier plan et l'écran allumé.</div>
+                        <div class="vac-download-progress-track">
+                            <div id="oaci-download-progress-bar" class="vac-download-progress-bar"></div>
+                        </div>
+                        <div id="oaci-download-progress-text" class="vac-download-progress-text" aria-live="polite"></div>
+                    </div>
+                    <div class="import-help-row">
+                        <label for="zip-importer-input" class="import-button">Importer Cartes Offline</label>
+                        <button type="button" class="import-help-button" data-import-help="offline-maps" aria-label="Aide Importer Cartes Offline" title="Aide">?</button>
+                    </div>
+                    <input type="file" id="zip-importer-input" accept=".zip" style="display: none;">
+
+                    <ul id="installed-maps-list">
+                        <!-- Les packs installés seront listés ici par le JavaScript -->
+                        <li class="no-maps-placeholder">Aucun pack de cartes installé.</li>
+                    </ul>
+                </div>
+
+                <div class="road-overlay-import-block">
+                    <h3 class="maps-management-title">Calque Routier</h3>
+                    <div class="import-help-row npf-map-download-row">
+                        <button type="button" id="routes-download-button" class="import-button">Télécharger le Calque Routier (0,4 Mo)</button>
+                        <button type="button" class="import-help-button npf-map-download-help-spacer" tabindex="-1" aria-hidden="true">?</button>
+                    </div>
+                    <div id="routes-download-progress" class="vac-download-progress npf-map-download-progress" style="display: none;">
+                        <div id="routes-download-advice" class="npf-map-download-advice">Garde l'app ouverte au premier plan et l'écran allumé.</div>
+                        <div class="vac-download-progress-track">
+                            <div id="routes-download-progress-bar" class="vac-download-progress-bar"></div>
+                        </div>
+                        <div id="routes-download-progress-text" class="vac-download-progress-text" aria-live="polite"></div>
+                    </div>
+                    <div class="import-help-row">
+                        <label for="road-overlay-importer-input" class="import-button road-overlay-import-button">
+                            Importer Calque Routier
+                        </label>
+                        <button type="button" class="import-help-button" data-import-help="road-overlay" aria-label="Aide Importer Calque Routier" title="Aide">?</button>
+                    </div>
+                    <input type="file" id="road-overlay-importer-input"
+                           accept=".zip,.geojson,.json,application/geo+json,application/json"
+                           style="display: none;">
+                    <div id="road-overlay-installed-status" class="road-overlay-installed-status">
+                        Aucun pack routier installé.
+                    </div>
+                    <button id="delete-road-overlay-button" type="button"
+                            class="danger-inline-btn road-overlay-delete-button"
+                            style="display: none;">
+                        Supprimer le calque routier
+                    </button>
+                </div>
+
+                <div class="vac-management-section">
+                    <h3 class="maps-management-title">Cartes VAC</h3>
+                    <p>
+                        Cartes VAC officielles SIA de La Réunion (FMEE, FMEP, hélistations), publiées avec NPF-Q400-RUN, synchronisées automatiquement
+                        et stockées sur cet appareil pour une utilisation 100 % hors ligne. Source : SIA / eAIP RUN.
+                    </p>
+                    <div class="vac-management-actions">
+                        <button id="vac-download-update-button" type="button" class="import-button">
+                            Synchroniser maintenant
+                        </button>
+                        <button id="vac-delete-all-button" type="button"
+                                class="danger-inline-btn"
+                                style="display: none;">
+                            Tout supprimer
+                        </button>
+                    </div>
+                    <div id="vac-installed-status" class="vac-installed-status" aria-live="polite">
+                        Vérification du stockage local…
+                    </div>
+                    <div id="vac-download-progress" class="vac-download-progress" style="display: none;">
+                        <div class="vac-download-progress-track">
+                            <div id="vac-download-progress-bar" class="vac-download-progress-bar"></div>
+                        </div>
+                        <div id="vac-download-progress-text" class="vac-download-progress-text"></div>
+                    </div>
+                </div>
+
+
+
+                <div class="sia-management-section">
+                    <h3 class="maps-management-title">Données Aéronautiques SIA</h3>
+                    <p>
+                        Données aéronautiques officielles SIA utilisées comme calques indépendants du fond de carte.
+                        Cette version TEST embarque l'AIRAC <span id="sia-embedded-airac-text">11/26 du 29/10/2026</span> pour validation hors ligne sur iPad.
+                    </p>
+                    <div class="sia-management-meta" aria-live="polite">
+                        <div><strong>AIRAC :</strong> <span id="sia-airac-value">11/26</span></div>
+                        <div><strong>Date d'effet :</strong> <span id="sia-effective-date-value">29/10/2026</span></div>
+                        <div><strong>Révision :</strong> <span id="sia-revision-value">v02</span></div>
+                        <div><strong>État :</strong> <span id="sia-installed-status">Vérification du stockage local…</span></div>
+                    </div>
+                    <div class="sia-management-actions">
+                        <button id="sia-check-update-button" type="button" class="import-button">
+                            Vérifier / initialiser
+                        </button>
+                        <button id="sia-delete-data-button" type="button"
+                                class="danger-inline-btn"
+                                style="display: none;">
+                            Supprimer les données SIA
+                        </button>
+                    </div>
+                    <p class="sia-management-note">
+                        Appui long sur l'icône actuelle de changement de carte pour ouvrir les filtres SIA.
+                    </p>
+                </div>
+
+                <div class="airport-pdf-section">
+                    <h3 class="maps-management-title">Doc FdF Réduite / Carte Fréquences</h3>
+                    <p>Importe un ou plusieurs PDF nommés avec leur code OACI, par exemple <b>FMEE.pdf</b> ou <b>FMEP.pdf</b>, ou les documents communs <b>Doc Fdf Réduité.pdf</b> et <b>Carte Fréquences OPS.pdf</b>. Ils seront stockés sur l’iPad pour ouverture hors ligne.</p>
+                    <div class="npf-docfdf-download-block npf-run-section-masquee">
+                        <div class="import-help-row npf-map-download-row">
+                            <button type="button" id="docfdf-download-button" class="import-button">Télécharger Doc FdF Réduite / Carte Fréquences (23 Mo)</button>
+                            <button type="button" class="import-help-button npf-map-download-help-spacer" tabindex="-1" aria-hidden="true">?</button>
+                        </div>
+                        <div id="docfdf-download-progress" class="vac-download-progress npf-map-download-progress" style="display: none;">
+                            <div id="docfdf-download-advice" class="npf-map-download-advice">Garde l'app ouverte au premier plan et l'écran allumé.</div>
+                            <div class="vac-download-progress-track">
+                                <div id="docfdf-download-progress-bar" class="vac-download-progress-bar"></div>
+                            </div>
+                            <div id="docfdf-download-progress-text" class="vac-download-progress-text" aria-live="polite"></div>
+                        </div>
+                    </div>
+                    <div class="airport-pdf-toolbar">
+                        <div class="import-help-row airport-pdf-import-help-row">
+                            <label for="airport-pdf-importer-input" class="import-button pdf-import-button">Importer Doc FdF Réduite / Carte Fréquences</label>
+                            <button type="button" class="import-help-button" data-import-help="fdf-pdfs" aria-label="Aide Importer Doc FdF Réduite / Carte Fréquences" title="Aide">?</button>
+                        </div>
+                        <button id="delete-all-airport-pdfs-button" type="button"
+                                class="danger-inline-btn airport-pdf-delete-all-button"
+                                style="display: none;">
+                            Tout supprimer
+                        </button>
+                    </div>
+                    <input type="file" id="airport-pdf-importer-input" accept="application/pdf,.pdf" multiple style="display: none;">
+                    <ul id="installed-airport-pdfs-list">
+                        <li class="no-pdfs-placeholder">Aucun PDF aérodrome stocké.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+ 
+
+    <div id="vac-update-modal" class="vac-update-modal" style="display: none;" aria-hidden="true">
+        <div class="vac-update-modal-content" role="dialog" aria-modal="true" aria-labelledby="vac-update-modal-title">
+            <h2 id="vac-update-modal-title">Télécharger cartes VAC</h2>
+            <div id="vac-update-detail" class="vac-update-detail" style="display: none;"></div>
+            <div class="vac-update-modal-actions">
+                <button id="vac-update-now-button" type="button" class="vac-update-now-button">Oui</button>
+                <button id="vac-update-later-button" type="button" class="vac-update-later-button">Non</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="import-help-modal" class="import-help-modal" style="display: none;" aria-hidden="true">
+        <div class="import-help-modal-content" role="dialog" aria-modal="true" aria-labelledby="import-help-modal-title">
+            <button id="close-import-help-modal" class="import-help-modal-close" type="button" aria-label="Fermer">&times;</button>
+            <h2 id="import-help-modal-title">Aide</h2>
+            <div id="import-help-modal-text" class="import-help-modal-text"></div>
+            <button id="import-help-modal-ok" class="import-help-modal-ok" type="button">OK</button>
+        </div>
+    </div>
+
+</body>
+</html>
+
+    

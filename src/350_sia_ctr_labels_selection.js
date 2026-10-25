@@ -1,0 +1,4207 @@
+// =========================================================================
+// v15.48 — CORRECTIONS TACTILES / VRP / CTR / APPUI LONG
+// =========================================================================
+
+function installQuickOfflineMapButtonInteractions(button) {
+    if (!button || button.dataset.siaLongPressBound === '1') return;
+    button.dataset.siaLongPressBound = '1';
+
+    protectNpfLongPressControlFromIosSelection(button);
+
+    let longPressTimer = null;
+    let longPressTriggered = false;
+    let pointerStartX = null;
+    let pointerStartY = null;
+
+    const clearLongPress = () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        pointerStartX = null;
+        pointerStartY = null;
+    };
+
+    const startLongPress = event => {
+        if (event && event.button !== undefined && event.button !== 0) return;
+        if (event && typeof event.preventDefault === 'function' && event.cancelable) event.preventDefault();
+        clearLongPress();
+        longPressTriggered = false;
+        pointerStartX = Number(event?.clientX);
+        pointerStartY = Number(event?.clientY);
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            longPressTriggered = true;
+            try { window.getSelection?.()?.removeAllRanges?.(); } catch (_) {}
+            openSiaFilterDialog();
+        }, 650);
+    };
+
+    const trackPointer = event => {
+        if (!longPressTimer || pointerStartX === null || pointerStartY === null) return;
+        const dx = Number(event?.clientX) - pointerStartX;
+        const dy = Number(event?.clientY) - pointerStartY;
+        if (Number.isFinite(dx) && Number.isFinite(dy) && Math.hypot(dx, dy) > 12) {
+            clearLongPress();
+        }
+    };
+
+    button.addEventListener('selectstart', event => event.preventDefault());
+    button.addEventListener('dragstart', event => event.preventDefault());
+    button.addEventListener('pointerdown', startLongPress, { passive: false });
+    button.addEventListener('pointermove', trackPointer, { passive: true });
+    button.addEventListener('pointerup', clearLongPress);
+    button.addEventListener('pointerleave', clearLongPress);
+    button.addEventListener('pointercancel', clearLongPress);
+    button.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        clearLongPress();
+        longPressTriggered = true;
+        try { window.getSelection?.()?.removeAllRanges?.(); } catch (_) {}
+        openSiaFilterDialog();
+    });
+    button.addEventListener('click', event => {
+        if (longPressTriggered) {
+            event.preventDefault();
+            event.stopPropagation();
+            longPressTriggered = false;
+            return;
+        }
+        openQuickOfflineMapSelector();
+    });
+}
+
+function getSiaVrpSymbolText(item) {
+    const codeId = String(item?.c || '').trim().toUpperCase();
+    const published = String(item?.d || '').trim().toUpperCase();
+
+    /*
+     * Les codes SIA VRP sont très souvent construits avec un préfixe terrain
+     * de 2 caractères (MTNE -> NE, LBAL -> AL, TBMAT -> MAT). On utilise
+     * cette forme courte lorsqu'elle tient en 1 à 3 caractères, sinon on
+     * conserve le libellé publié.
+     */
+    if (codeId.length > 2) {
+        const shortCode = codeId.slice(2);
+        if (/^[A-Z0-9]{1,3}$/.test(shortCode)) return shortCode;
+    }
+    return published || codeId || '?';
+}
+
+/* v15.87 — VRP légèrement plus compacts ; hitbox tactile inchangée. */
+function getSiaVrpVisualSize(label) {
+    // v15.88 — diamètre visuel homogène ; seule la taille du texte varie.
+    void label;
+    return 24;
+}
+
+function addSiaTouchHitbox(latlng, popupHtml, popupFactory = null) {
+    if (!siaLayerGroup || !latlng || !popupHtml) return null;
+
+    /*
+     * v15.50 — même correction que pour les terrains NPF : surface SVG
+     * quasi invisible plutôt qu'un DIV vide. Diamètre tactile 56 px.
+     */
+    ensureSiaMapPanes();
+    const hitbox = L.circleMarker(latlng, {
+        pane: 'siaPointTouchPane',
+        renderer: siaPointTouchRenderer || undefined,
+        radius: 28,
+        stroke: false,
+        color: '#000000',
+        opacity: 0,
+        fill: true,
+        fillColor: '#000000',
+        fillOpacity: 0.002,
+        interactive: true,
+        bubblingMouseEvents: false,
+        keyboard: false
+    });
+    hitbox.bindPopup(popupHtml, { maxWidth: 340 });
+    hitbox.on('click', event => {
+        try {
+            if (event?.originalEvent) {
+                L.DomEvent.stopPropagation(event.originalEvent);
+            }
+        } catch (_) {}
+
+        /*
+         * v16.12 — même arbitrage pour les VRP/SIA : si le doigt est réellement
+         * sur le losange WP, ouvrir le WP ; sinon la fiche SIA reste accessible.
+         */
+        if (window.__npfWaypointRouteReady === true
+            && openNpfWaypointPopupNearLatLng(
+                event?.latlng || hitbox.getLatLng(),
+                NPF_WAYPOINT_SELECT_TOLERANCE_PX
+            )) {
+            return;
+        }
+
+        try {
+            if (typeof popupFactory === 'function') {
+                hitbox.setPopupContent(popupFactory());
+            }
+            hitbox.openPopup();
+        } catch (_) {}
+    });
+    hitbox.addTo(siaLayerGroup);
+    try { if (hitbox.bringToFront) hitbox.bringToFront(); } catch (_) {}
+    return hitbox;
+}
+
+function formatSiaCtrServices(item) {
+    const services = Array.isArray(item?.sv) ? item.sv : [];
+    if (!services.length) return '';
+
+    const rows = services.map(service => {
+        const type = String(service?.[0] || '').trim();
+        const unitRaw = String(service?.[1] || '').trim();
+        const unit = unitRaw.replace(/^[A-Z]{4}\s+/, '').trim();
+        const frequencies = Array.isArray(service?.[2]) ? service[2] : [];
+
+        const freqText = frequencies
+            .map(freq => {
+                const value = String(freq?.[0] || '').trim();
+                const uom = String(freq?.[1] || '').trim();
+                return value ? `${escapeHtml(value)}${uom ? ` ${escapeHtml(uom)}` : ''}` : '';
+            })
+            .filter(Boolean)
+            .join(' / ');
+
+        if (!freqText) return '';
+
+        const hours = [...new Set(
+            frequencies
+                .map(freq => String(freq?.[2] || '').trim())
+                .filter(Boolean)
+        )].join(' / ');
+
+        const callSign = frequencies
+            .map(freq => String(freq?.[3] || '').trim())
+            .find(Boolean) || '';
+
+        return `
+            <div class="sia-ctr-service-row">
+                <strong>${escapeHtml(type || 'Service')} :</strong> ${freqText}
+                ${unit ? `<span class="sia-ctr-service-unit">${escapeHtml(unit)}</span>` : ''}
+                ${callSign ? `<span class="sia-ctr-service-call">${escapeHtml(callSign)}</span>` : ''}
+                ${hours ? `<span class="sia-ctr-service-hours">${escapeHtml(hours)}</span>` : ''}
+            </div>
+        `;
+    }).filter(Boolean).join('');
+
+    if (!rows) return '';
+    return `<div class="sia-ctr-services"><div class="sia-ctr-services-title">Fréquences associées SIA</div>${rows}</div>`;
+}
+
+function formatSiaCtrFrequencyValue(value, unit = '') {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const numeric = Number(raw.replace(',', '.'));
+    if (Number.isFinite(numeric) && String(unit || '').toUpperCase() === 'MHZ') {
+        return numeric.toFixed(3);
+    }
+    return raw;
+}
+
+function normalizeSiaFrequencyServiceLabel(value) {
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return 'FREQ';
+    if (raw === 'GND' || raw === 'GROUND') return 'SOL';
+    return raw;
+}
+
+
+/*
+ * v15.62 — enrichissement opérationnel des zones R.
+ *
+ * Ordre de priorité demandé :
+ * 1) instruction explicite d'entrée/clairance/contact/autorisation ;
+ * 2) gestionnaire publié (Administrator / Managing authority) ;
+ * 3) service ATS explicite dans les premières lignes, hors listes "activity known".
+ *
+ * Une liste "Activity known on" ne sert JAMAIS à nommer la zone. Elle peut
+ * uniquement fournir une fréquence de repli si le service retenu est clairement
+ * cité sur la même ligne. Aucun rapprochement géographique n'est utilisé.
+ */
+const siaRestrictedRemarkInfoCache = new WeakMap();
+
+function normalizeSiaAirspaceRemarkLines(item) {
+    return String(item?.r || '')
+        .replace(/#/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n')
+        .map(line => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+function extractSiaOperationalServiceFromChunk(value) {
+    let text = String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^[\s\-–—:;,.]+/, '');
+
+    // v15.64 — une condition météo/visibilité n'est pas un indicatif de service.
+    if (/^(?:VISI|VISIBILITY|METEO|WEATHER)\b/i.test(text)) return null;
+
+    text = text
+        .replace(/^(?:ACTUAL\s+)?ACTIVITY\s+KNOWN\s+ON\s*:?\s*/i, '')
+        .replace(/^RADIO\s+CONTACT(?:\s+MANDATORY)?\s+WITH\s*:?\s*/i, '');
+
+    const match = text.match(
+        /^(.{1,70}?)\s+(APP|TWR|INFO|SIV|FIS|ACC|FIC|AFIS|ATIS|A\/A|CONTROL)\b/i
+    );
+    if (!match) return null;
+
+    let operationalName = String(match[1] || '')
+        .trim()
+        .replace(/^[\s\-–—:;,.]+|[\s\-–—:;,.]+$/g, '')
+        .replace(/^.*:\s*/i, '')
+        .replace(/^.*\b(?:THROUGH|FOLLOW|BY|ON|UPON|WITH|OF|AFTER|AND|OR|FROM)\s+/i, '')
+        .replace(/^(?:MANDATORY|CONTACT|WITH|CLEARANCE)\s+/i, '')
+        .trim()
+        .toUpperCase();
+
+    if (!operationalName || /^(?:NIL|NONE|N\/A)$/.test(operationalName)) return null;
+
+    return {
+        operationalName,
+        serviceType: String(match[2] || '').trim().toUpperCase(),
+        rawService: String(match[0] || '').trim()
+    };
+}
+
+function extractSiaAeronauticalFrequencyFromText(value) {
+    const text = String(value || '');
+    const regex = /\b((?:1[1-3]\d|2\d{2}|3\d{2})(?:[.,]\d{1,3}))\s*(?:MHZ)?\b/i;
+    const match = text.match(regex);
+    if (!match) return '';
+
+    const numeric = Number(String(match[1] || '').replace(',', '.'));
+    if (!Number.isFinite(numeric) || numeric < 118 || numeric >= 400) return '';
+    return numeric.toFixed(3);
+}
+
+let siaRestrictedCrossReferenceNameIndex = null;
+
+function normalizeSiaRestrictedReferenceCode(value) {
+    return String(value || '')
+        .trim()
+        .toUpperCase()
+        .replace(/^(?:LF|FM)\s*-?\s*R\s*/i, '')
+        .replace(/\s+/g, '');
+}
+
+function cleanSiaRestrictedCrossReferenceName(value) {
+    let name = String(value || '')
+        .trim()
+        .replace(/^[\s\-–—:;,.()]+|[\s\-–—:;,.()]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .toUpperCase();
+
+    // Ces mots décrivent l'état ou la relation, pas un nom géographique.
+    if (!name || /^(?:IS|ARE|ACTIVE|ACTIVATED|WHEN|IF|PART|AREA|AREAS|ZONE|ZONES)\b/i.test(name)) return '';
+    if (/^(?:ACTIVITY|ACTIVATION)\b/i.test(name)) return '';
+    if (/\b(?:LF|FM)\s*-\s*[PRD]\b/i.test(name)) return '';
+    if (/^\d+(?:[./]\d+)*$/.test(name)) return '';
+
+    /*
+     * v15.64 — garde-fou contre les faux noms issus de conditions opérationnelles.
+     * Exemple R8 : « VISI > or = 5 km : ATIS GARONS » ne doit jamais produire
+     * « = 5 KM » comme nom de zone.
+     */
+    if (/(?:^|\b)(?:VISI|VISIBILITY|METEO|WEATHER)\b/i.test(name)) return '';
+    if (/(?:>=|<=|>|<|=)\s*\d/i.test(name)) return '';
+    if (/^=?\s*\d+(?:[.,]\d+)?\s*(?:KM|NM|FT|M|FL\d*)\b/i.test(name)) return '';
+    return name;
+}
+
+function buildSiaRestrictedCrossReferenceNameIndex(dataset = siaDataset) {
+    if (siaRestrictedCrossReferenceNameIndex) return siaRestrictedCrossReferenceNameIndex;
+
+    const counts = new Map();
+    const referenceRegex = /\b(?:LF|FM)\s*-\s*R\s*([0-9A-Z./]+)\s+(.+?)(?=\s+(?:OR|AND)\s+(?:LF|FM)\s*-\s*R\s*[0-9]|\s+(?:WHEN|INTERFERING|EXCEPT|EXCLUDING|WHICH|ACTIVITY|ACTIVATION|IS\s+ACTIVE|ARE\s+ACTIVE)\b|[#;,\n.]|$)/gi;
+
+    (dataset?.airspaces || []).forEach(sourceItem => {
+        const remark = String(sourceItem?.r || '');
+        if (!remark) return;
+
+        referenceRegex.lastIndex = 0;
+        for (const match of remark.matchAll(referenceRegex)) {
+            const code = normalizeSiaRestrictedReferenceCode(match?.[1]);
+            const name = cleanSiaRestrictedCrossReferenceName(match?.[2]);
+            if (!code || !name) continue;
+
+            if (!counts.has(code)) counts.set(code, new Map());
+            const nameCounts = counts.get(code);
+            nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        }
+    });
+
+    const index = new Map();
+    counts.forEach((nameCounts, code) => {
+        const ordered = [...nameCounts.entries()].sort((a, b) => {
+            if (a[1] !== b[1]) return b[1] - a[1];
+            if (a[0].length !== b[0].length) return b[0].length - a[0].length;
+            return a[0].localeCompare(b[0], 'fr');
+        });
+        if (ordered[0]?.[0]) index.set(code, ordered[0][0]);
+    });
+
+    siaRestrictedCrossReferenceNameIndex = index;
+    return index;
+}
+
+function getSiaRestrictedCrossReferenceName(item) {
+    if (String(item?.t || '').trim().toUpperCase() !== 'R') return '';
+    const code = normalizeSiaRestrictedReferenceCode(item?.c);
+    if (!code) return '';
+    return buildSiaRestrictedCrossReferenceNameIndex().get(code) || '';
+}
+
+
+/*
+ * v15.65 — même principe pour les zones P : leur propre fiche contient
+ * souvent seulement le numéro alors que d'autres espaces publient explicitement
+ * "LF-P xx NOM" (P62 TOULON, P48 FORT DE BRÉGANÇON, P63 ILE DU LEVANT...).
+ */
+let siaProhibitedCrossReferenceNameIndex = null;
+
+function normalizeSiaProhibitedReferenceCode(value) {
+    return String(value || '')
+        .trim()
+        .toUpperCase()
+        .replace(/^(?:LF|FM)\s*-?\s*P\s*/i, '')
+        .replace(/\s+/g, '');
+}
+
+function buildSiaProhibitedCrossReferenceNameIndex(dataset = siaDataset) {
+    if (siaProhibitedCrossReferenceNameIndex) return siaProhibitedCrossReferenceNameIndex;
+
+    const counts = new Map();
+    const referenceRegex = /\b(?:LF|FM)\s*-\s*P\s*([0-9A-Z./]+)\s+(.+?)(?=\s+(?:OR|AND)\s+(?:LF|FM)\s*-\s*[PRD]\s*[0-9]|,\s*(?:LF|FM)\s*-\s*[PRD]\s*[0-9]|\s+(?:WHEN|INTERFERING|EXCEPT|EXCLUDING|WHICH|ACTIVITY|ACTIVATION|IS\s+ACTIVE|ARE\s+ACTIVE)\b|[#;\n.]|$)/gi;
+
+    (dataset?.airspaces || []).forEach(sourceItem => {
+        const remark = String(sourceItem?.r || '');
+        if (!remark) return;
+
+        referenceRegex.lastIndex = 0;
+        for (const match of remark.matchAll(referenceRegex)) {
+            const code = normalizeSiaProhibitedReferenceCode(match?.[1]);
+            const name = cleanSiaRestrictedCrossReferenceName(match?.[2]);
+            if (!code || !name) continue;
+
+            if (!counts.has(code)) counts.set(code, new Map());
+            const nameCounts = counts.get(code);
+            nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+        }
+    });
+
+    const index = new Map();
+    counts.forEach((nameCounts, code) => {
+        const ordered = [...nameCounts.entries()].sort((a, b) => {
+            if (a[1] !== b[1]) return b[1] - a[1];
+            if (a[0].length !== b[0].length) return b[0].length - a[0].length;
+            return a[0].localeCompare(b[0], 'fr');
+        });
+        if (ordered[0]?.[0]) index.set(code, ordered[0][0]);
+    });
+
+    siaProhibitedCrossReferenceNameIndex = index;
+    return index;
+}
+
+function getSiaProhibitedCrossReferenceName(item) {
+    if (String(item?.t || '').trim().toUpperCase() !== 'P') return '';
+    const code = normalizeSiaProhibitedReferenceCode(item?.c);
+    if (!code) return '';
+    return buildSiaProhibitedCrossReferenceNameIndex().get(code) || '';
+}
+
+/*
+ * v15.68 — les zones P utilisent désormais le NomUsuel de leur propre Partie
+ * dans XML_SIA, embarqué dans item.pn. Les phrases réglementaires rencontrées
+ * dans les remarques d'autres espaces ne sont plus admises comme nom de carte.
+ * Si le SIA ne fournit pas de NomUsuel, le libellé reste volontairement P + numéro.
+ */
+function getSiaProhibitedOfficialName(item) {
+    if (String(item?.t || '').trim().toUpperCase() !== 'P') return '';
+    return String(item?.pn || '').trim();
+}
+
+function getSiaRestrictedAdministratorFallback(administratorChunk) {
+    const chunk = String(administratorChunk || '').trim();
+    if (!chunk) return null;
+
+    const atsService = extractSiaOperationalServiceFromChunk(chunk);
+    if (atsService) return atsService;
+
+    /*
+     * v15.64 — lorsqu'un gestionnaire publie lui-même un lieu géographique
+     * explicite, celui-ci est plus fiable que le nom rencontré seulement dans
+     * une référence croisée. Ex. « 2ème REI, camp des Garrigues » -> GARRIGUES.
+     */
+    const placePatterns = [
+        /\bCAMP\s+(?:DES|DU|DE|D['’])\s*([A-ZÀ-ÖØ-öø-ÿ][A-ZÀ-ÖØ-öø-ÿ'’.\- ]{1,45}?)(?=[.;,]|$)/i,
+        /\bBASE(?:\s+A[ÉE]RIENNE)?\s+(?:DES|DU|DE|D['’])\s*([A-ZÀ-ÖØ-öø-ÿ][A-ZÀ-ÖØ-öø-ÿ'’.\- ]{1,45}?)(?=[.;,]|$)/i,
+        /\bCENTRE\s+(?:DES|DU|DE|D['’])\s*([A-ZÀ-ÖØ-öø-ÿ][A-ZÀ-ÖØ-öø-ÿ'’.\- ]{1,45}?)(?=[.;,]|$)/i
+    ];
+
+    for (const pattern of placePatterns) {
+        const match = chunk.match(pattern);
+        if (!match) continue;
+        const operationalName = String(match[1] || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .toUpperCase();
+        if (!operationalName) continue;
+        return {
+            operationalName,
+            serviceType: '',
+            rawService: String(match[0] || '').trim(),
+            administratorGeographic: true
+        };
+    }
+
+    /*
+     * Gestionnaires militaires : le lieu est conservé, l'acronyme organique
+     * n'est pas utilisé comme nom de zone. Ex. "CCER Istres or CMC Istres"
+     * -> ISTRES.
+     */
+    const organizationMatch = chunk.match(
+        /\b(?:CCER|CMC|CMCI|CDC|CLA|ESCA|CDPGE)\s+([A-ZÀ-ÖØ-öø-ÿ][A-ZÀ-ÖØ-öø-ÿ'’.\- ]{1,30}?)(?=\s+(?:OR|AND)\b|[.;,]|$)/i
+    );
+    const airForceBaseMatch = chunk.match(
+        /^(.{2,30}?)\s+AIR\s+FORCE\s+BASE\b/i
+    );
+    const fallbackMatch = organizationMatch || airForceBaseMatch;
+    if (!fallbackMatch) return null;
+
+    const operationalName = String(fallbackMatch[1] || '')
+        .split(/[.;,]/)[0]
+        .trim()
+        .toUpperCase();
+
+    if (!operationalName) return null;
+    return {
+        operationalName,
+        serviceType: '',
+        rawService: String(fallbackMatch[0] || '').trim(),
+        administratorGeographic: true
+    };
+}
+
+function getSiaRestrictedRemarkInfo(item) {
+    if (String(item?.t || '').trim().toUpperCase() !== 'R') return null;
+
+    if (item && typeof item === 'object' && siaRestrictedRemarkInfoCache.has(item)) {
+        return siaRestrictedRemarkInfoCache.get(item);
+    }
+
+    const lines = normalizeSiaAirspaceRemarkLines(item);
+    let service = null;
+    let frequency = '';
+    let sourceKind = '';
+    let administratorChunk = '';
+
+    /*
+     * 1) Priorité absolue aux instructions opérationnelles explicites.
+     * Ex. R108B :
+     * "entry with clearance from CAMARGUE Control 127.925 MHz"
+     * -> CAMARGUE / 127.925.
+     */
+    const explicitOperationalRegex =
+        /(?:entry(?:\s+\w+){0,4}\s+with\s+clearance\s+from|clearance\s+(?:from|by)|radio\s+contact(?:\s+mandatory)?\s+with|contact\s+with|with\s+authori[sz]ation\s+of|upon\s+.*authori[sz]ation|authori[sz]ation\s+(?:of|from|by)|authori[sz]ed\s+by)\s+(.+)/i;
+
+    for (const line of lines) {
+        const explicitMatch = line.match(explicitOperationalRegex);
+        if (!explicitMatch) continue;
+
+        const explicitService = extractSiaOperationalServiceFromChunk(explicitMatch[1]);
+        if (!explicitService) continue;
+
+        service = explicitService;
+        frequency = extractSiaAeronauticalFrequencyFromText(line);
+        sourceKind = 'explicit';
+        break;
+    }
+
+    // 2) À défaut seulement : gestionnaire/autorité explicitement publié.
+    if (!service) {
+        for (const line of lines) {
+            const administratorMatch = line.match(
+                /(?:Admin(?:istrator|itrator)s?|Managing\s+authority)\s*:?\s*(.+)/i
+            );
+            if (!administratorMatch) continue;
+
+            administratorChunk = String(administratorMatch[1] || '').trim();
+            service = getSiaRestrictedAdministratorFallback(administratorChunk);
+            if (service) {
+                frequency = extractSiaAeronauticalFrequencyFromText(line);
+                sourceKind = 'administrator';
+                break;
+            }
+        }
+    } else {
+        // On mémorise quand même le gestionnaire pour la fiche, sans lui donner priorité.
+        for (const line of lines) {
+            const administratorMatch = line.match(
+                /(?:Admin(?:istrator|itrator)s?|Managing\s+authority)\s*:?\s*(.+)/i
+            );
+            if (administratorMatch) {
+                administratorChunk = String(administratorMatch[1] || '').trim();
+                break;
+            }
+        }
+    }
+
+    /*
+     * 3) Repli très conservateur : service ATS présent directement dans les
+     * premières lignes, mais jamais une ligne "activity known".
+     */
+    if (!service) {
+        for (const line of lines.slice(0, 4)) {
+            if (/(?:actual\s+)?activity\s+known|activation\s+(?:known|provided|announced)/i.test(line)) continue;
+            const directService = extractSiaOperationalServiceFromChunk(line);
+            if (!directService) continue;
+            service = directService;
+            frequency = extractSiaAeronauticalFrequencyFromText(line);
+            sourceKind = 'direct';
+            break;
+        }
+    }
+
+    const serviceOperationalName = String(service?.operationalName || '').trim();
+    const crossReferenceName = getSiaRestrictedCrossReferenceName(item);
+
+    /*
+     * v15.63 — un vrai nom géographique publié ailleurs dans le même jeu SIA
+     * devient le nom principal, sauf si une instruction explicite de clairance/
+     * contact a fourni un service directement opérationnel (ex. R108B/CAMARGUE).
+     */
+    const operationalName = sourceKind === 'explicit'
+        ? serviceOperationalName
+        : (
+            sourceKind === 'administrator' && service?.administratorGeographic
+                ? serviceOperationalName
+                : (crossReferenceName || serviceOperationalName)
+        );
+
+    /*
+     * Fréquence de repli :
+     * - si l'instruction opérationnelle retenue donne une fréquence, elle gagne ;
+     * - sinon priorité à une ligne citant le SERVICE retenu ;
+     * - les lignes "activity known" peuvent fournir la fréquence, mais jamais
+     *   le NOM de la zone ;
+     * - RAI n'est jamais affiché.
+     */
+    if (!frequency && serviceOperationalName) {
+        const candidates = [];
+        lines.forEach((line, lineIndex) => {
+            const value = extractSiaAeronauticalFrequencyFromText(line);
+            if (!value) return;
+
+            const upperLine = line.toUpperCase();
+            let score = 0;
+
+            if (upperLine.includes(serviceOperationalName.toUpperCase())) score += 12;
+            if (explicitOperationalRegex.test(line)) score += 10;
+            if (/(?:Admin(?:istrator|itrator)s?|Managing\s+authority)/i.test(line)) score += 7;
+            if (/(?:actual\s+)?activity\s+known|activation\s+(?:known|provided|announced)/i.test(line)) score += 3;
+            if (/\bRAI\b/i.test(line)) score += 1;
+
+            if (score <= 0) return;
+            candidates.push({ score, lineIndex, value });
+        });
+
+        candidates.sort((a, b) => {
+            if (a.score !== b.score) return b.score - a.score;
+            return a.lineIndex - b.lineIndex;
+        });
+
+        frequency = candidates[0]?.value || '';
+    }
+
+    const result = {
+        operationalName,
+        serviceName: serviceOperationalName,
+        crossReferenceName,
+        serviceType: service?.serviceType || '',
+        frequency,
+        sourceKind: crossReferenceName && sourceKind !== 'explicit' ? 'cross-reference' : sourceKind,
+        administrator: administratorChunk
+    };
+
+    if (item && typeof item === 'object') {
+        try { siaRestrictedRemarkInfoCache.set(item, result); } catch (_) {}
+    }
+    return result;
+}
+
+function formatSiaCtrFrequencyRows(item) {
+    const effectiveServices = getSiaEffectiveServices(item);
+    const services = effectiveServices.services;
+
+    if (!services.length) {
+        const restrictedInfo = getSiaRestrictedRemarkInfo(item);
+        if (!restrictedInfo?.frequency) return '';
+
+        const frequencyDetailName = restrictedInfo.serviceName || restrictedInfo.operationalName || '';
+        const detail = frequencyDetailName
+            ? `<div class="sia-airspace-frequency-detail">${escapeHtml(frequencyDetailName)}</div>`
+            : '';
+
+        return `
+            <div class="sia-airspace-frequency-block">
+                <div class="sia-ctr-frequency-row">Fréquence : ${escapeHtml(restrictedInfo.frequency)}</div>
+                ${detail}
+            </div>
+        `;
+    }
+
+    const grouped = new Map();
+
+    services.forEach(service => {
+        const type = normalizeSiaFrequencyServiceLabel(service?.[0]);
+        const unitName = String(service?.[1] || '').trim();
+        const frequencies = Array.isArray(service?.[2]) ? service[2] : [];
+
+        if (!grouped.has(type)) {
+            grouped.set(type, {
+                unitNames: [],
+                frequencies: []
+            });
+        }
+
+        const group = grouped.get(type);
+        if (unitName && !group.unitNames.includes(unitName)) {
+            group.unitNames.push(unitName);
+        }
+
+        frequencies.forEach(freq => {
+            const formatted = formatSiaCtrFrequencyValue(freq?.[0], freq?.[1]);
+            if (!formatted) return;
+
+            const supplementary = Number(freq?.[4] || 0) === 1;
+            const hours = String(freq?.[2] || '').trim();
+            const callsign = String(freq?.[3] || '').trim();
+            const key = [
+                formatted,
+                supplementary ? 1 : 0,
+                hours,
+                callsign
+            ].join('|');
+
+            if (!group.frequencies.some(entry => entry.key === key)) {
+                group.frequencies.push({
+                    key,
+                    value: formatted,
+                    supplementary,
+                    hours,
+                    callsign
+                });
+            }
+        });
+    });
+
+    return [...grouped.entries()]
+        .filter(([, group]) => group.frequencies.length)
+        .map(([type, group]) => {
+            const ordered = [
+                ...group.frequencies.filter(v => !v.supplementary),
+                ...group.frequencies.filter(v => v.supplementary)
+            ];
+
+            const frequencyText = ordered
+                .map(v => `${v.value}${v.supplementary ? ' (s)' : ''}`)
+                .join(' / ');
+
+            const detailPairs = ordered.map(v => ({
+                frequency: `${v.value}${v.supplementary ? ' (s)' : ''}`,
+                hours: v.hours,
+                callsign: v.callsign
+            }));
+
+            const uniqueDetails = new Map();
+            detailPairs.forEach(detail => {
+                const key = `${detail.hours}|${detail.callsign}`;
+                if (!uniqueDetails.has(key)) uniqueDetails.set(key, detail);
+            });
+
+            let detailsHtml = '';
+            if (uniqueDetails.size === 1) {
+                const detail = [...uniqueDetails.values()][0];
+                const detailText = [detail.hours, detail.callsign].filter(Boolean).join(' — ');
+                if (detailText) {
+                    detailsHtml += `<div class="sia-airspace-frequency-detail">${escapeHtml(detailText)}</div>`;
+                }
+            } else {
+                detailPairs.forEach(detail => {
+                    const detailText = [
+                        detail.frequency,
+                        detail.hours,
+                        detail.callsign
+                    ].filter(Boolean).join(' — ');
+                    if (detailText) {
+                        detailsHtml += `<div class="sia-airspace-frequency-detail">${escapeHtml(detailText)}</div>`;
+                    }
+                });
+            }
+
+            const zoneCode = String(item?.c || '').trim().toUpperCase();
+            const zoneName = String(item?.n || '').trim().toUpperCase();
+            const redundantUnit = group.unitNames.length === 1
+                && String(group.unitNames[0]).trim().toUpperCase() === `${zoneCode} ${zoneName}`.trim();
+
+            if (group.unitNames.length && !redundantUnit) {
+                detailsHtml += `<div class="sia-airspace-frequency-detail">${escapeHtml(group.unitNames.join(' / '))}</div>`;
+            }
+
+            return `
+                <div class="sia-airspace-frequency-block">
+                    <div class="sia-ctr-frequency-row">${escapeHtml(type)} : ${escapeHtml(frequencyText)}</div>
+                    ${detailsHtml}
+                </div>
+            `;
+        })
+        .join('');
+}
+
+let siaTmaFamilyServicesIndex = null;
+
+function getSiaTmaServiceSignature(services) {
+    if (!Array.isArray(services) || !services.length) return '';
+    try {
+        return JSON.stringify(services);
+    } catch (_) {
+        return '';
+    }
+}
+
+function buildSiaTmaFamilyServicesIndex(dataset = siaDataset) {
+    if (siaTmaFamilyServicesIndex) return siaTmaFamilyServicesIndex;
+
+    const families = new Map();
+
+    (dataset?.airspaces || []).forEach(item => {
+        if (String(item?.t || '').trim().toUpperCase() !== 'TMA') return;
+
+        const services = Array.isArray(item?.sv) ? item.sv : [];
+        if (!services.length) return;
+
+        const family = getSiaTmaFamilyBaseFromSectorName(item?.n);
+        if (!family) return;
+
+        const signature = getSiaTmaServiceSignature(services);
+        if (!signature) return;
+
+        if (!families.has(family)) families.set(family, new Map());
+        const signatures = families.get(family);
+        if (!signatures.has(signature)) signatures.set(signature, services);
+    });
+
+    const index = new Map();
+    families.forEach((signatures, family) => {
+        /*
+         * Héritage uniquement si tous les secteurs renseignés de la famille
+         * convergent vers un unique bloc de services. Aucune fréquence n'est
+         * déduite en cas d'ambiguïté.
+         */
+        if (signatures.size === 1) {
+            index.set(family, [...signatures.values()][0]);
+        }
+    });
+
+    siaTmaFamilyServicesIndex = index;
+    return index;
+}
+
+function getSiaEffectiveServices(item) {
+    const direct = Array.isArray(item?.sv) ? item.sv : [];
+    if (direct.length) {
+        return { services: direct, inheritedFromFamily: false };
+    }
+
+    if (String(item?.t || '').trim().toUpperCase() !== 'TMA') {
+        return { services: [], inheritedFromFamily: false };
+    }
+
+    const family = getSiaTmaFamilyBaseFromSectorName(item?.n);
+    if (!family) return { services: [], inheritedFromFamily: false };
+
+    const inherited = buildSiaTmaFamilyServicesIndex().get(family);
+    if (!Array.isArray(inherited) || !inherited.length) {
+        return { services: [], inheritedFromFamily: false };
+    }
+
+    return {
+        services: inherited,
+        inheritedFromFamily: true,
+        inheritedFamily: family
+    };
+}
+
+function getSiaFirstAssignedFrequency(item) {
+    /*
+     * v15.67 — pour un SIV, la fréquence affichée sur la carte n'est choisie
+     * que lorsque XML_SIA la rattache sans ambiguïté au secteur (sfp).
+     * Les autres fréquences FIS restent visibles dans la fiche détaillée via sv.
+     */
+    if (isSiaFlightInformationSector(item)) {
+        const volumeAssigned = getSiaVolumeAssignedFrequencies(item);
+        if (volumeAssigned.length) {
+            return {
+                serviceType: 'FIS',
+                value: volumeAssigned.join(' / '),
+                supplementary: false,
+                sourceDesignatedSiv: true,
+                sourceSivVolumeActivity: true
+            };
+        }
+
+        const preferred = Array.isArray(item?.sfp)
+            ? item.sfp.map(value => String(value || '').trim()).filter(Boolean)
+            : [];
+        if (preferred.length) {
+            return {
+                serviceType: 'FIS',
+                value: preferred.join(' / '),
+                supplementary: false,
+                sourceDesignatedSiv: true
+            };
+        }
+        if (Number(item?.sfa || 0) === 1) return null;
+    }
+
+    const effectiveServices = getSiaEffectiveServices(item);
+    const services = effectiveServices.services;
+    const candidates = [];
+
+    services.forEach((service, serviceIndex) => {
+        const serviceType = normalizeSiaFrequencyServiceLabel(service?.[0]);
+        const frequencies = Array.isArray(service?.[2]) ? service[2] : [];
+
+        frequencies.forEach((freq, freqIndex) => {
+            const value = formatSiaCtrFrequencyValue(freq?.[0], freq?.[1]);
+            if (!value) return;
+
+            candidates.push({
+                serviceType,
+                value,
+                supplementary: Number(freq?.[4] || 0) === 1,
+                serviceIndex,
+                freqIndex,
+                inheritedFromFamily: effectiveServices.inheritedFromFamily === true,
+                inheritedFamily: effectiveServices.inheritedFamily || ''
+            });
+        });
+    });
+
+    if (!candidates.length) {
+        const restrictedInfo = getSiaRestrictedRemarkInfo(item);
+        if (!restrictedInfo?.frequency) return null;
+
+        return {
+            serviceType: restrictedInfo.serviceType || '',
+            value: restrictedInfo.frequency,
+            supplementary: false,
+            inferredFromRemark: true
+        };
+    }
+
+    // Première fréquence normale dans l'ordre SIA ; supplétive seulement à défaut.
+    candidates.sort((a, b) => {
+        if (a.supplementary !== b.supplementary) return a.supplementary ? 1 : -1;
+        if (a.serviceIndex !== b.serviceIndex) return a.serviceIndex - b.serviceIndex;
+        return a.freqIndex - b.freqIndex;
+    });
+
+    return candidates[0];
+}
+
+function getSiaAirspaceBoundaryLabelText(item) {
+    const displayType = getSiaAirspaceDisplayType(item);
+    const type = String(item?.t || '').trim().toUpperCase();
+    const name = String(item?.n || '').trim();
+    const code = String(item?.c || '').trim();
+    const primaryName = name || code;
+    const base = [displayType, primaryName].filter(Boolean).join(' ');
+
+    /* v16.63 — ligne 1 = nom uniquement. */
+    if (type === 'R') {
+        const restrictedInfo = getSiaRestrictedRemarkInfo(item);
+        return [base, String(restrictedInfo?.operationalName || '').trim()]
+            .filter(Boolean).join(' / ');
+    }
+    if (type === 'P') {
+        return [base, getSiaProhibitedOfficialName(item)].filter(Boolean).join(' / ');
+    }
+    return base;
+}
+
+function getSiaAirspaceBoundaryFrequencyText(item) {
+    const type = String(item?.t || '').trim().toUpperCase();
+    if (type === 'P') return '';
+
+    if (type === 'R') {
+        const restrictedInfo = getSiaRestrictedRemarkInfo(item);
+        const value = String(restrictedInfo?.frequency || '').trim();
+        if (!value) return '';
+        const serviceType = String(restrictedInfo?.serviceType || '').trim();
+        return [serviceType, value].filter(Boolean).join(' ');
+    }
+
+    const firstFrequency = getSiaFirstAssignedFrequency(item);
+    if (!firstFrequency) return '';
+    const frequencyPrefix = firstFrequency.inferredFromRemark
+        ? String(firstFrequency.serviceType || '').trim()
+        : String(firstFrequency.serviceType || '').trim();
+    const frequencyText = [frequencyPrefix, firstFrequency.value].filter(Boolean).join(' ');
+    return `${frequencyText}${firstFrequency.supplementary ? ' (s)' : ''}`;
+}
+
+function getSiaAirspaceBoundaryVerticalText(item) {
+    const hasLower = hasSiaVerticalValue(item?.lo);
+    const hasUpper = hasSiaVerticalValue(item?.up);
+    if (!hasLower && !hasUpper) return '';
+
+    const lower = hasLower ? formatSiaVertical(item.lo) : '—';
+    const upper = hasUpper ? formatSiaVertical(item.up) : '—';
+    return `${lower} – ${upper}`;
+}
+
+function getSiaAirspaceDisplayType(item) {
+    const type = String(item?.t || '').trim().toUpperCase();
+    const local = String(item?.l || '').trim().toUpperCase();
+
+    // v15.65 — les RAS "FLIGHT INFORMATION SECTOR" sont présentés comme SIV.
+    if (isSiaFlightInformationSector(item)) return 'SIV';
+
+    // Pour les D-OTHER, le type local est plus utile opérationnellement.
+    if (type === 'D-OTHER' && local) return local;
+    return type || 'ESPACE';
+}
+
+function getSiaAirspaceDisplayTitle(item) {
+    const displayType = getSiaAirspaceDisplayType(item);
+    const type = String(item?.t || '').trim().toUpperCase();
+    const name = String(item?.n || '').trim();
+    const code = String(item?.c || '').trim();
+
+    // v15.57 — une TMA est présentée par son nom opérationnel, sans doublon
+    // du code technique de secteur (LFML1, LFMN2, etc.).
+    if (type === 'TMA') {
+        return [displayType, name].filter(Boolean).join(' / ');
+    }
+
+    // v15.61 — les zones R gardent leur numéro lisible et ajoutent, lorsqu'il
+    // est explicitement disponible, le gestionnaire/service opérationnel.
+    if (type === 'R') {
+        const restrictedInfo = getSiaRestrictedRemarkInfo(item);
+        return [
+            displayType,
+            name || code,
+            restrictedInfo?.operationalName || ''
+        ].filter(Boolean).join(' / ');
+    }
+
+    if (type === 'P') {
+        return [
+            displayType,
+            name || code,
+            getSiaProhibitedOfficialName(item)
+        ].filter(Boolean).join(' / ');
+    }
+
+    /* v17.74 — parcs nationaux et réserves naturelles : nom SIA (NomUsuel du XML-SIA). */
+    if (type === 'D-OTHER' && String(item?.l || '').toUpperCase() === 'PRN' && String(item?.pn || '').trim()) {
+        return [displayType, String(item.pn).trim()].join(' / ');
+    }
+
+    return [displayType, code, name].filter(Boolean).join(' / ');
+}
+
+function isSiaTechnicalTmaUnionParent(item) {
+    return String(item?.t || '').toUpperCase() === 'TMA'
+        && Number(item?.tp || 0) === 1;
+}
+
+function normalizeSiaTmaFamilyName(value) {
+    return String(value || '')
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, ' ');
+}
+
+function getSiaTmaFamilyBaseFromSectorName(value) {
+    const normalized = normalizeSiaTmaFamilyName(value);
+    if (!normalized) return '';
+    return normalized.replace(/\s+\d+(?:\.\d+)*$/, '').trim();
+}
+
+function hasSiaTmaVerticalLimits(item) {
+    return hasSiaVerticalValue(item?.lo) || hasSiaVerticalValue(item?.up);
+}
+
+function buildSiaTmaOperationalFamilySet(dataset) {
+    const families = new Set();
+
+    for (const item of dataset?.airspaces || []) {
+        if (String(item?.t || '').toUpperCase() !== 'TMA') continue;
+        if (!hasSiaTmaVerticalLimits(item)) continue;
+
+        const name = normalizeSiaTmaFamilyName(item?.n);
+        const family = getSiaTmaFamilyBaseFromSectorName(name);
+
+        if (family && family !== name) {
+            families.add(family);
+        }
+    }
+    return families;
+}
+
+function isSiaGenericTmaWithoutAltitude(item, operationalFamilies) {
+    if (String(item?.t || '').toUpperCase() !== 'TMA') return false;
+    if (hasSiaTmaVerticalLimits(item)) return false;
+
+    const name = normalizeSiaTmaFamilyName(item?.n);
+    return !!name
+        && operationalFamilies instanceof Set
+        && operationalFamilies.has(name);
+}
+
+function hasSiaVerticalValue(raw) {
+    return Array.isArray(raw) && String(raw?.[1] || '').trim() !== '';
+}
+
+function formatSiaAirspaceRemark(value) {
+    /* v17.70 — retours à la ligne avant l'échappement (voir escapeSiaMultilineHtml, src/340). */
+    return escapeSiaMultilineHtml(String(value || '').trim());
+}
+
+function buildSiaAirspacePopup(item) {
+    const displayType = getSiaAirspaceDisplayType(item);
+    const title = getSiaAirspaceDisplayTitle(item);
+    const typeClass = [displayType, item?.cl].filter(Boolean).join(' / ');
+    const vertical = `${formatSiaVertical(item?.lo)} / ${formatSiaVertical(item?.up)}`;
+    const frequencyRows = formatSiaCtrFrequencyRows(item);
+
+    const minVertical = hasSiaVerticalValue(item?.mi)
+        ? formatSiaVertical(item.mi)
+        : '';
+    const maxVertical = hasSiaVerticalValue(item?.ma)
+        ? formatSiaVertical(item.ma)
+        : '';
+
+    const activity = String(item?.a || '').trim();
+    const identifier = String(item?.i || '').trim();
+    const code = String(item?.c || '').trim();
+    const remark = String(item?.r || '').trim();
+    /* v17.74 — parcs et réserves (PRN) : hauteur minimale de survol (plafond SIA) et source du contour. */
+    const isPrn = String(item?.t || '') === 'D-OTHER' && String(item?.l || '').toUpperCase() === 'PRN';
+    const inpnSource = (typeof SIA_EMBEDDED_RESOURCE !== 'undefined' && SIA_EMBEDDED_RESOURCE && SIA_EMBEDDED_RESOURCE.inpnSource) || '';
+    const prnRows = isPrn ? `
+            <div class="sia-airspace-extra-row"><strong>Hauteur minimale de survol :</strong> ${escapeHtml(formatSiaVertical(item?.up))}</div>
+            ${item?.src ? `<div class="sia-airspace-extra-row sia-prn-source">Contour : ${escapeHtml(inpnSource || 'INPN')}</div>` : ''}` : '';
+
+    /*
+     * v15.55 — présentation identique pour toutes les zones :
+     * - les 3 lignes principales restent sans libellés ;
+     * - toutes les autres données opérationnelles réellement présentes dans
+     *   le payload SIA sont ajoutées ;
+     * - aucune information n'est déduite par proximité.
+     */
+    return `
+        <div class="sia-popup sia-ctr-popup sia-ctr-popup-compact sia-airspace-popup-compact">
+            <div class="sia-popup-title">${escapeHtml(title || displayType)}</div>
+
+            <div class="sia-ctr-info-row">${escapeHtml(typeClass || displayType)}</div>
+            <div class="sia-ctr-info-row">${escapeHtml(vertical)}</div>
+            ${prnRows}
+
+            ${minVertical ? `<div class="sia-airspace-extra-row">MIN : ${escapeHtml(minVertical)}</div>` : ''}
+            ${maxVertical ? `<div class="sia-airspace-extra-row">MAX : ${escapeHtml(maxVertical)}</div>` : ''}
+
+            ${frequencyRows}
+
+            ${activity ? `
+                <div class="sia-airspace-section">
+                    <div class="sia-airspace-section-title">ACTIVITÉ</div>
+                    <div class="sia-airspace-extra-row">${formatSiaAirspaceRemark(activity)}</div>
+                </div>
+            ` : ''}
+
+            ${identifier && identifier !== code ? `
+                <div class="sia-airspace-section">
+                    <div class="sia-airspace-section-title">IDENTIFIANT</div>
+                    <div class="sia-airspace-extra-row">${escapeHtml(identifier)}</div>
+                </div>
+            ` : ''}
+
+            ${remark ? `
+                <div class="sia-airspace-section">
+                    <div class="sia-airspace-section-title">REMARQUES</div>
+                    <div class="sia-airspace-extra-row sia-airspace-remark">${formatSiaAirspaceRemark(remark)}</div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+/* v17.81 — parcs nationaux et réserves naturelles (D-OTHER / PRN) : contour exact en points rouges ronds
+ * (épaisseur = diamètre d'un point, 7 px d'un point à l'autre à l'écran). */
+const SIA_PRN_DOTS_WEIGHT = 3.4;
+const SIA_PRN_DOTS_DASH = '0.1 7';
+
+function getSiaAirspaceStyle(item) {
+    const type = String(item?.t || '');
+    const local = String(item?.l || '');
+
+    let color = '#3559e0';
+    let dashArray = null;
+    let fillOpacity = 0;
+    let weight = 2.2;
+    let opacity = 0.95;
+
+    if (isSiaFlightInformationSector(item)) {
+        color = '#ffea00';
+        weight = 3.2;
+        opacity = 1;
+        dashArray = null;
+        fillOpacity = 0;
+    }
+    else if (type === 'P') { color = '#d50000'; fillOpacity = getSiaAirspaceVeilOpacity('P'); }
+    else if (type === 'R') color = '#ff6d00';
+    else if (type === 'D') { color = '#e91e63'; fillOpacity = getSiaAirspaceVeilOpacity('D'); }
+    else if (type === 'TRA') { color = '#ff6d00'; dashArray = '7 5'; }
+    else if (type === 'CTR') {
+        color = '#0066ff';
+        weight = Number(item?.co || 0) === 1 ? 1.7 : 2.4;
+        opacity = Number(item?.co || 0) === 1 ? 0.65 : 1;
+        fillOpacity = 0;
+
+    }
+    else if (type === 'TMA') color = '#673ab7';
+    else if (type === 'CTA') color = '#3f51b5';
+    else if (type === 'FIR' || type === 'UIR' || type === 'UIR-P' || type === 'UTA' || type === 'OCA') {
+        color = '#455a64';
+        dashArray = '9 6';
+        fillOpacity = 0;
+    } else if (type === 'SECTOR' || type === 'SECTOR-C' || type === 'RAS') {
+        color = '#607d8b';
+        dashArray = '6 5';
+        fillOpacity = 0;
+    } else if (type === 'D-OTHER') {
+        color = '#8e24aa';
+        dashArray = '5 4';
+        if (local === 'PJE') color = '#d81b60';
+        else if (local === 'AER') color = '#00897b';
+        else if (local === 'VOL') color = '#3949ab';
+        else if (local === 'SUR') color = '#6d4c41';
+        /* v17.74 — parcs nationaux et réserves naturelles : contour rouge (même rouge que les zones P).
+         * v17.81 — contour EXACT dessiné seulement en POINTS ROUGES ronds posés sur la limite (plus de trait plein ni
+         * de rangée intérieure) : tirets quasi nuls à bouts ronds, écart en pixels d'écran (régulier à toute échelle),
+         * toutes parties comprises ; aucun calcul : c'est le tracé de la zone elle-même (toucher inchangé). */
+        else if (local === 'PRN') { color = '#d50000'; dashArray = SIA_PRN_DOTS_DASH; weight = SIA_PRN_DOTS_WEIGHT; }
+        else if (local === 'BAL') color = '#7b1fa2';
+    }
+
+    /*
+     * v15.54 — sur le fond OACI, TOUS les espaces SIA restent actifs/tactiles
+     * mais leur dessin normal est masqué. Seule la zone sélectionnée se colore.
+     */
+    if (isCurrentOfflineOaciMap()) {
+        opacity = 0;
+        fillOpacity = 0;
+    }
+
+    return {
+        color,
+        weight,
+        opacity,
+        fillColor: color,
+        fillOpacity,
+        dashArray,
+        lineCap: 'round',
+        lineJoin: 'round'
+    };
+}
+
+function getSiaCtrOuterRings(geometry) {
+    if (!geometry || !Array.isArray(geometry.coordinates)) return [];
+    if (geometry.type === 'Polygon') {
+        return geometry.coordinates.length ? [geometry.coordinates[0]] : [];
+    }
+    if (geometry.type === 'MultiPolygon') {
+        return geometry.coordinates
+            .map(polygon => Array.isArray(polygon) && polygon.length ? polygon[0] : null)
+            .filter(Boolean);
+    }
+    return [];
+}
+
+function buildSiaCtrInsetSegmentsLatLngs(ring, geometry, insetPixels = 7) {
+    if (!map || !geometry || !Array.isArray(ring) || ring.length < 3) return [];
+
+    const raw = ring.slice();
+    const first = raw[0];
+    const last = raw[raw.length - 1];
+    const isClosed = Array.isArray(first) && Array.isArray(last)
+        && Number(first[0]) === Number(last[0])
+        && Number(first[1]) === Number(last[1]);
+
+    if (!isClosed && raw.length >= 3) raw.push(raw[0]);
+
+    const segments = [];
+    const preferredInset = Math.max(7, Number(insetPixels) || 7);
+    const insetCandidates = [preferredInset, 6, 5, 4, 3, 2]
+        .filter((value, index, values) => value > 0 && values.indexOf(value) === index)
+        .sort((a, b) => b - a);
+    const MAX_SUBDIVISION_DEPTH = 7;
+    const MIN_SOURCE_PIECE_PX = 3;
+
+    const isLayerPointInsideGeometry = point => {
+        try {
+            return siaGeometryContainsLatLng(geometry, map.layerPointToLatLng(point));
+        } catch (_) {
+            return false;
+        }
+    };
+
+    const movePointToward = (from, to, distancePx) => {
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const length = Math.hypot(dx, dy);
+        if (!Number.isFinite(length) || length <= 0 || distancePx <= 0) return from;
+        const ratio = Math.min(1, distancePx / length);
+        return L.point(
+            from.x + dx * ratio,
+            from.y + dy * ratio
+        );
+    };
+
+    const findFirstInsideTowardMid = (endpoint, midpoint) => {
+        if (isLayerPointInsideGeometry(endpoint)) return endpoint;
+        if (!isLayerPointInsideGeometry(midpoint)) return null;
+
+        let outside = endpoint;
+        let inside = midpoint;
+        for (let step = 0; step < 9; step += 1) {
+            const candidate = L.point(
+                (outside.x + inside.x) / 2,
+                (outside.y + inside.y) / 2
+            );
+            if (isLayerPointInsideGeometry(candidate)) inside = candidate;
+            else outside = candidate;
+        }
+
+        // 2 px suffisent : l'axe reste déjà décalé de 7 px pour un trait de 12 px.
+        return movePointToward(inside, midpoint, 2);
+    };
+
+    const tryInsetPiece = (pa, pb, trimStart, trimEnd) => {
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const length = Math.hypot(dx, dy);
+        if (!Number.isFinite(length) || length < 2) return null;
+
+        const tx = dx / length;
+        const ty = dy / length;
+        const endpointTrim = Math.min(5, length * 0.16);
+        const startTrim = trimStart ? endpointTrim : 0;
+        const endTrim = trimEnd ? endpointTrim : 0;
+        if (startTrim + endTrim >= length - 1) return null;
+
+        const baseA = L.point(pa.x + tx * startTrim, pa.y + ty * startTrim);
+        const baseB = L.point(pb.x - tx * endTrim, pb.y - ty * endTrim);
+        const normals = [
+            { x: -ty, y: tx },
+            { x: ty, y: -tx }
+        ];
+
+        /*
+         * v15.80 — 7 px reste la cible. Si la géométrie locale devient trop
+         * étroite à un niveau de zoom donné, on rapproche progressivement l'axe
+         * de la limite au lieu de faire disparaître toute la bande.
+         */
+        for (const inset of insetCandidates) {
+            let best = null;
+            for (const normal of normals) {
+                const shiftedA = L.point(
+                    baseA.x + normal.x * inset,
+                    baseA.y + normal.y * inset
+                );
+                const shiftedB = L.point(
+                    baseB.x + normal.x * inset,
+                    baseB.y + normal.y * inset
+                );
+                const shiftedMid = L.point(
+                    (shiftedA.x + shiftedB.x) / 2,
+                    (shiftedA.y + shiftedB.y) / 2
+                );
+
+                if (!isLayerPointInsideGeometry(shiftedMid)) continue;
+
+                const safeA = findFirstInsideTowardMid(shiftedA, shiftedMid);
+                const safeB = findFirstInsideTowardMid(shiftedB, shiftedMid);
+                if (!safeA || !safeB) continue;
+
+                const safeLength = Math.hypot(safeB.x - safeA.x, safeB.y - safeA.y);
+                if (!Number.isFinite(safeLength) || safeLength < 2) continue;
+
+                const testRatios = safeLength < 12 ? [0.35, 0.50, 0.65] : [0.20, 0.35, 0.50, 0.65, 0.80];
+                const allInside = testRatios.every(ratio => isLayerPointInsideGeometry(L.point(
+                    safeA.x + (safeB.x - safeA.x) * ratio,
+                    safeA.y + (safeB.y - safeA.y) * ratio
+                )));
+                if (!allInside) continue;
+
+                if (!best || safeLength > best.safeLength) {
+                    best = { safeA, safeB, safeLength };
+                }
+            }
+            if (best) return [best.safeA, best.safeB];
+        }
+
+        return null;
+    };
+
+    const buildPieceRecursively = (pa, pb, depth, trimStart, trimEnd) => {
+        const direct = tryInsetPiece(pa, pb, trimStart, trimEnd);
+        if (direct) return [direct];
+
+        const length = Math.hypot(pb.x - pa.x, pb.y - pa.y);
+        if (
+            depth >= MAX_SUBDIVISION_DEPTH
+            || !Number.isFinite(length)
+            || length < MIN_SOURCE_PIECE_PX
+        ) {
+            return [];
+        }
+
+        /*
+         * v15.80 — subdivision de dernier recours. Les petites portions ne sont
+         * plus abandonnées au seuil fixe de 10 px de v15.79 ; le décalage local
+         * adaptatif est essayé avant chaque nouvelle subdivision.
+         */
+        const midpoint = L.point((pa.x + pb.x) / 2, (pa.y + pb.y) / 2);
+        return [
+            ...buildPieceRecursively(pa, midpoint, depth + 1, trimStart, false),
+            ...buildPieceRecursively(midpoint, pb, depth + 1, false, trimEnd)
+        ];
+    };
+
+    for (let i = 1; i < raw.length; i += 1) {
+        const a = raw[i - 1];
+        const b = raw[i];
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) continue;
+
+        const pa = map.latLngToLayerPoint(L.latLng(Number(a[1]), Number(a[0])));
+        const pb = map.latLngToLayerPoint(L.latLng(Number(b[1]), Number(b[0])));
+        const pieces = buildPieceRecursively(pa, pb, 0, true, true);
+
+        pieces.forEach(piece => {
+            if (!Array.isArray(piece) || piece.length !== 2) return;
+            segments.push([
+                map.layerPointToLatLng(piece[0]),
+                map.layerPointToLatLng(piece[1])
+            ]);
+        });
+    }
+
+    return segments;
+}
+
+function addSiaCtrInnerBand(geometry, color = '#0066ff', options = {}) {
+    if ((!siaLayerGroup && !options.collect) || !geometry || isCurrentOfflineOaciMap()) return [];
+    const createdLayers = [];
+    const rings = getSiaCtrOuterRings(geometry);
+    rings.forEach(ring => {
+        const segments = buildSiaCtrInsetSegmentsLatLngs(ring, geometry, 7);
+        if (!segments.length) return;
+
+        const layer = L.polyline(segments, {
+            pane: 'siaAirspacePane',
+            renderer: siaAirspaceRenderer,
+            color,
+            weight: 12,
+            opacity: 0.22,
+            lineCap: 'round',
+            lineJoin: 'round',
+            interactive: false
+        });
+        if (!options.collect) layer.addTo(siaLayerGroup);
+        createdLayers.push(layer);
+    });
+    return createdLayers;
+}
+
+/*
+ * v17.52 — B4 / B5 : bordures intérieures gardées et complétées.
+ * - Les bordures vivent dans un calque à part (siaInnerBandLayerGroup), qui
+ *   survit au remplacement du calque SIA après un glisser : plus d'effacement
+ *   puis de redessin complet en 10 à 28 s.
+ * - Cache par zone pour l'échelle en cours (le décalage de 7 px dépend du
+ *   zoom ; le contour entier est calculé, donc valable après tout glisser).
+ * - Seules les zones de la vue sans bordure sont calculées, par lots d'environ
+ *   8 ms ; chaque lot est posé d'un coup (un seul redessin du canvas par lot).
+ * - Jamais pendant qu'un doigt est posé ; un recentrage du suivi GPS n'annule
+ *   plus rien : il ajoute seulement les zones entrées à l'écran.
+ * - Mêmes règles d'affichage qu'avant : < 10 NM, pas sur OACI hors ligne,
+ *   zones affichées, et « HT + Routes allumées -> à partir de 2 NM ».
+ */
+const SIA_INNER_BAND_FRAME_BUDGET_MS = 8;
+/* Pose groupée : un redessin du canvas pour environ 3 images de calcul. */
+const SIA_INNER_BAND_FLUSH_MS = 24;
+let siaInnerBandLayerGroup = null;
+const siaInnerBandCache = new Map();
+let siaInnerBandCacheZoom = null;
+let siaInnerBandJob = null;
+let siaInnerBandGeneration = 0;
+let siaInnerBandRafPending = false;
+
+function getSiaInnerBandLayerGroup() {
+    if (!siaInnerBandLayerGroup) siaInnerBandLayerGroup = L.layerGroup();
+    if (map && !map.hasLayer(siaInnerBandLayerGroup)) siaInnerBandLayerGroup.addTo(map);
+    return siaInnerBandLayerGroup;
+}
+
+function clearSiaInnerBands() {
+    siaInnerBandGeneration += 1;
+    siaInnerBandJob = null;
+    if (siaInnerBandLayerGroup) {
+        try { siaInnerBandLayerGroup.clearLayers(); } catch (_) {}
+    }
+    siaInnerBandCache.clear();
+    siaInnerBandCacheZoom = null;
+}
+
+function isSiaInnerBandDisplayAllowed() {
+    if (!map || !siaMapAirspacesVisible || isCurrentOfflineOaciMap()) return false;
+    if (!Array.isArray(siaRenderedAirspaceFeatures) || !siaRenderedAirspaceFeatures.length) return false;
+    const scaleNm = getCurrentNpfScaleNm();
+    if (!Number.isFinite(scaleNm) || scaleNm >= SIA_DECORATION_LIGHTWEIGHT_SCALE_NM) return false;
+    /* v17.58 — C (essai) : bordures dès 5 NM, même avec HT + Routes (avant :
+     * à partir de 2 NM avec HT + Routes). Toujours rien à 10 NM et au-dessus. */
+    return true;
+}
+
+function scheduleSiaInnerBandsSync(reason = 'sync', options = {}) {
+    siaInnerBandGeneration += 1;
+    siaInnerBandJob = {
+        generation: siaInnerBandGeneration,
+        reason: String(reason || ''),
+        reorder: !!options.reorder || !!siaInnerBandJob?.reorder,
+        list: null,
+        index: 0
+    };
+    if (siaInnerBandRafPending) return;
+    siaInnerBandRafPending = true;
+    npfNextFrame(() => {
+        siaInnerBandRafPending = false;
+        runSiaInnerBandsStep();
+    });
+}
+
+/* Nom global : suivi par le DIAG (« en cours » des blocages). */
+function runSiaInnerBandsStep() {
+    const job = siaInnerBandJob;
+    if (!job || job.generation !== siaInnerBandGeneration || !map) return;
+    const again = () => {
+        if (siaInnerBandRafPending) return;
+        siaInnerBandRafPending = true;
+        npfNextFrame(() => {
+            siaInnerBandRafPending = false;
+            runSiaInnerBandsStep();
+        });
+    };
+    if (typeof isNpfMapFingerDown === 'function' && isNpfMapFingerDown()) {
+        again();
+        return;
+    }
+    if (!job.list) {
+        if (!isSiaInnerBandDisplayAllowed()) {
+            clearSiaInnerBands();
+            return;
+        }
+        const group = getSiaInnerBandLayerGroup();
+        const zoom = map.getZoom();
+        if (siaInnerBandCacheZoom !== zoom) {
+            try { group.clearLayers(); } catch (_) {}
+            siaInnerBandCache.clear();
+            siaInnerBandCacheZoom = zoom;
+        }
+        const renderedItems = new Set(siaRenderedAirspaceFeatures.map(feature => feature?.properties?.siaItem));
+        for (const [item, layers] of siaInnerBandCache) {
+            if (renderedItems.has(item)) continue;
+            layers.forEach(layer => { try { group.removeLayer(layer); } catch (_) {} });
+            siaInnerBandCache.delete(item);
+        }
+        /* Après un nouveau calque SIA : reposer les bordures gardées au-dessus
+         * des contours (même ordre de dessin qu'avant), sans aucun recalcul. */
+        if (job.reorder) {
+            for (const layers of siaInnerBandCache.values()) {
+                layers.forEach(layer => {
+                    try { group.removeLayer(layer); group.addLayer(layer); } catch (_) {}
+                });
+            }
+        }
+        job.list = getSiaDecorationFeaturesForCurrentView(siaRenderedAirspaceFeatures).filter(feature => {
+            const item = feature?.properties?.siaItem;
+            /* v17.75 — pas de liseré pour les parcs et réserves (PRN) : leurs grands contours bloquaient l'iPad
+             * 3 à 5 s (calcul d'une seule traite, coût au carré du nombre de sommets) ; leur aspect est le
+             * contour rouge + la rangée de points préparée par le convertisseur. */
+            if (item && item.t === 'D-OTHER' && String(item.l || '').toUpperCase() === 'PRN') return false;
+            return item && Number(item?.co || 0) !== 1 && !siaInnerBandCache.has(item);
+        });
+        job.index = 0;
+        job.pending = [];
+        job.pendingMs = 0;
+    }
+    const group = getSiaInnerBandLayerGroup();
+    const sliceStartedAt = performance.now();
+    const batch = job.pending;
+    while (
+        job.index < job.list.length
+        && (batch.length === 0 || performance.now() - sliceStartedAt < SIA_INNER_BAND_FRAME_BUDGET_MS)
+    ) {
+        const feature = job.list[job.index++];
+        const item = feature.properties.siaItem;
+        if (siaInnerBandCache.has(item)) continue;
+        let layers = [];
+        try {
+            layers = addSiaCtrInnerBand(feature.geometry, getSiaAirspaceStyle(item).color, { collect: true });
+        } catch (_) {
+            layers = [];
+        }
+        siaInnerBandCache.set(item, layers);
+        batch.push(...layers);
+    }
+    job.pendingMs += performance.now() - sliceStartedAt;
+    const finished = job.index >= job.list.length;
+    /* Pose groupée : un seul passage (un redessin du canvas) pour plusieurs
+     * images de calcul, ou à la fin du travail. */
+    if (finished || job.pendingMs >= SIA_INNER_BAND_FLUSH_MS) {
+        batch.forEach(layer => { try { group.addLayer(layer); } catch (_) {} });
+        job.pending = [];
+        job.pendingMs = 0;
+    }
+    if (!finished) {
+        again();
+        return;
+    }
+    siaInnerBandJob = null;
+}
+
+function normalizeSiaBoundaryLabelAngle(angleDeg) {
+    let angle = Number(angleDeg) || 0;
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    if (angle > 90) angle -= 180;
+    if (angle < -90) angle += 180;
+    return angle;
+}
+
+function getSiaBoundaryLabelPriority(item) {
+    const type = String(item?.t || '').trim().toUpperCase();
+    if (type === 'CTR') return 10;
+    if (type === 'R' || type === 'P' || type === 'D') return 20;
+    if (type === 'TRA') return 25;
+    if (type === 'TMA') return 30;
+    if (type === 'CTA') return 40;
+    if (isSiaFlightInformationSector(item)) return 45;
+    if (type === 'D-OTHER') return 50;
+    return 60;
+}
+
+function getSiaBoundaryLabelMinimumSegmentPx(item) {
+    const priority = getSiaBoundaryLabelPriority(item);
+    if (priority <= 10) return 34; // CTR : priorité maximale, notamment SALON.
+    if (priority <= 20) return 38; // R / P / D.
+    if (priority <= 30) return 44;
+    return 50;
+}
+
+/*
+ * v15.68 — les zones P petites/circulaires ne doivent pas dépendre de la longueur
+ * d'un segment issu de la discrétisation du contour. On construit plusieurs points
+ * intérieurs autour du centroïde/barycentre écran et on les essaie avant les
+ * placements le long des segments. Le texte reste horizontal.
+ */
+function buildSiaProhibitedInteriorLabelPlacements(geometry, bounds) {
+    if (!map || !geometry) return [];
+    const rings = getSiaCtrOuterRings(geometry);
+    const placements = [];
+    const seen = new Set();
+
+    const polygonCentroid = points => {
+        let twiceArea = 0;
+        let cx = 0;
+        let cy = 0;
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const a = points[j];
+            const b = points[i];
+            const cross = a.x * b.y - b.x * a.y;
+            twiceArea += cross;
+            cx += (a.x + b.x) * cross;
+            cy += (a.y + b.y) * cross;
+        }
+        if (Math.abs(twiceArea) < 0.001) return null;
+        return L.point(cx / (3 * twiceArea), cy / (3 * twiceArea));
+    };
+
+    rings.forEach(ring => {
+        if (!Array.isArray(ring) || ring.length < 3) return;
+        const points = ring.map(coord =>
+            map.latLngToContainerPoint(L.latLng(Number(coord[1]), Number(coord[0])))
+        ).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+        if (points.length < 3) return;
+
+        const xs = points.map(point => point.x);
+        const ys = points.map(point => point.y);
+        const bboxCenter = L.point((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2);
+        const mean = L.point(
+            points.reduce((sum, point) => sum + point.x, 0) / points.length,
+            points.reduce((sum, point) => sum + point.y, 0) / points.length
+        );
+        const centroid = polygonCentroid(points);
+        const bases = [centroid, bboxCenter, mean].filter(Boolean);
+        const offsets = [
+            [0, 0], [0, -18], [0, 18], [-24, 0], [24, 0],
+            [-20, -16], [20, -16], [-20, 16], [20, 16],
+            [0, -30], [0, 30], [-36, 0], [36, 0]
+        ];
+
+        bases.forEach((base, baseIndex) => {
+            offsets.forEach((offset, offsetIndex) => {
+                const point = L.point(base.x + offset[0], base.y + offset[1]);
+                const key = `${Math.round(point.x / 3)}:${Math.round(point.y / 3)}`;
+                if (seen.has(key)) return;
+                const latlng = map.containerPointToLatLng(point);
+                if (bounds && !bounds.contains(latlng)) return;
+                if (!siaGeometryContainsLatLng(geometry, latlng)) return;
+                seen.add(key);
+                placements.push({
+                    latlng,
+                    point,
+                    angle: 0,
+                    lengthPx: 100000 - baseIndex * 1000 - offsetIndex,
+                    insetPx: 0,
+                    interior: true
+                });
+            });
+        });
+    });
+
+    return placements;
+}
+
+/*
+ * v17.53 — C : libellés de zones vers l'INTÉRIEUR de leur zone.
+ * Le texte, parallèle au bord, est posé entièrement dans la zone, juste après
+ * la bordure estompée (axe à 7 px du bord, 12 px de large -> 13 px) avec un
+ * petit écart de 4 px. Même décalage que la bordure soit affichée ou non à
+ * cette échelle. Contenu, police, taille et seuils inchangés.
+ */
+const SIA_BOUNDARY_LABEL_BAND_OUTER_PX = 13;
+const SIA_BOUNDARY_LABEL_GAP_PX = 4;
+const siaBoundaryLabelSizeCache = new Map();
+let siaBoundaryLabelProbe = null;
+
+/* Taille réelle du libellé (avant rotation), mesurée une fois par texte. */
+function measureSiaBoundaryLabelSize(html) {
+    const cached = siaBoundaryLabelSizeCache.get(html);
+    if (cached) return cached;
+    let size = null;
+    try {
+        if (!siaBoundaryLabelProbe) {
+            siaBoundaryLabelProbe = L.DomUtil.create('div', 'leaflet-marker-icon sia-boundary-label-icon');
+            siaBoundaryLabelProbe.style.cssText = 'position:absolute;left:-10000px;top:-10000px;width:1px;height:1px;visibility:hidden;pointer-events:none;';
+        }
+        const pane = map.getPane('siaAirspacePane') || map.getContainer();
+        if (siaBoundaryLabelProbe.parentNode !== pane) pane.appendChild(siaBoundaryLabelProbe);
+        siaBoundaryLabelProbe.innerHTML = html;
+        const element = siaBoundaryLabelProbe.firstElementChild;
+        if (element) {
+            element.style.transform = 'none';
+            size = { width: element.offsetWidth, height: element.offsetHeight };
+        }
+        siaBoundaryLabelProbe.innerHTML = '';
+    } catch (_) {
+        size = null;
+    }
+    if (!size || !(size.width > 0) || !(size.height > 0)) return null;
+    if (siaBoundaryLabelSizeCache.size > 1500) siaBoundaryLabelSizeCache.clear();
+    siaBoundaryLabelSizeCache.set(html, size);
+    return size;
+}
+
+/* Cadre du texte : 0 = dans la zone et hors de toute bordure estompée ;
+ * 1 = dans la zone mais touche la bordure d'un autre bord ; 2 = déborde. */
+function getSiaBoundaryLabelBoxFit(geometry, ringPointLists, center, tangent, normal, halfWidth, halfHeight) {
+    const samples = [];
+    for (const along of [-1, -0.5, 0, 0.5, 1]) {
+        for (const across of [-1, 1]) {
+            samples.push(L.point(
+                center.x + tangent.x * along * halfWidth + normal.x * across * halfHeight,
+                center.y + tangent.y * along * halfWidth + normal.y * across * halfHeight
+            ));
+        }
+    }
+    for (const point of samples) {
+        if (!siaGeometryContainsLatLng(geometry, map.containerPointToLatLng(point))) return 2;
+    }
+    const margin = SIA_BOUNDARY_LABEL_BAND_OUTER_PX;
+    const minX = Math.min(...samples.map(point => point.x)) - margin;
+    const maxX = Math.max(...samples.map(point => point.x)) + margin;
+    const minY = Math.min(...samples.map(point => point.y)) - margin;
+    const maxY = Math.max(...samples.map(point => point.y)) + margin;
+    for (const ringPoints of ringPointLists) {
+        for (let index = 1; index < ringPoints.length; index += 1) {
+            const a = ringPoints[index - 1];
+            const c = ringPoints[index];
+            /* Segment loin du texte : rien à tester. */
+            if ((a.x < minX && c.x < minX) || (a.x > maxX && c.x > maxX)
+                || (a.y < minY && c.y < minY) || (a.y > maxY && c.y > maxY)) continue;
+            for (const point of samples) {
+                if (siaDistancePointToSegmentPx(point, a, c) < margin) return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+function findSiaBoundaryLabelPlacements(item, geometry, labelSize = null) {
+    if (!map || !geometry) return [];
+
+    const rings = getSiaCtrOuterRings(geometry);
+    if (!rings.length) return [];
+    const ringPointLists = labelSize
+        ? rings.map(ring => (Array.isArray(ring) ? ring : [])
+            .filter(coord => Array.isArray(coord) && coord.length >= 2)
+            .map(coord => map.latLngToContainerPoint(L.latLng(Number(coord[1]), Number(coord[0])))))
+        : [];
+
+    const bounds = map.getBounds().pad(-0.01);
+    const minimumLengthPx = getSiaBoundaryLabelMinimumSegmentPx(item);
+    const placements = [];
+
+    if (String(item?.t || '').trim().toUpperCase() === 'P') {
+        const interiorPlacements = buildSiaProhibitedInteriorLabelPlacements(geometry, bounds);
+        /* v17.53 — C : le texte horizontal des zones P est aussi contrôlé. */
+        if (labelSize) {
+            interiorPlacements.forEach(placement => {
+                placement.inward = true;
+                placement.fit = undefined;
+                placement.resolveFit = () => {
+                    placement.fit = getSiaBoundaryLabelBoxFit(
+                        geometry, ringPointLists, placement.point, { x: 1, y: 0 }, { x: 0, y: 1 },
+                        labelSize.width / 2, labelSize.height / 2
+                    );
+                    return placement.fit;
+                };
+            });
+        }
+        placements.push(...interiorPlacements);
+    }
+
+    rings.forEach(ring => {
+        if (!Array.isArray(ring) || ring.length < 2) return;
+
+        for (let i = 1; i < ring.length; i += 1) {
+            const a = ring[i - 1];
+            const b = ring[i];
+            if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) continue;
+
+            const aLatLng = L.latLng(Number(a[1]), Number(a[0]));
+            const bLatLng = L.latLng(Number(b[1]), Number(b[0]));
+            const pa = map.latLngToContainerPoint(aLatLng);
+            const pb = map.latLngToContainerPoint(bLatLng);
+            const lengthPx = pa.distanceTo(pb);
+            if (!Number.isFinite(lengthPx) || lengthPx < minimumLengthPx) continue;
+
+            const midpoint = L.point((pa.x + pb.x) / 2, (pa.y + pb.y) / 2);
+            const dx = pb.x - pa.x;
+            const dy = pb.y - pa.y;
+            const segmentLength = Math.hypot(dx, dy);
+            if (!Number.isFinite(segmentLength) || segmentLength < 1) continue;
+
+            const angle = normalizeSiaBoundaryLabelAngle(
+                Math.atan2(dy, dx) * 180 / Math.PI
+            );
+
+            /*
+             * Le texte ne doit plus être posé sur le trait plein.
+             * On teste les deux normales au segment et plusieurs retraits.
+             * Seul un point réellement contenu dans le polygone est retenu.
+             */
+            const normals = [
+                { x: -dy / segmentLength, y: dx / segmentLength },
+                { x: dy / segmentLength, y: -dx / segmentLength }
+            ];
+
+            /* v17.53 — C : placement vers l'intérieur (voir plus haut). */
+            if (labelSize) {
+                const halfWidth = labelSize.width / 2;
+                const halfHeight = labelSize.height / 2;
+                const inwardInsetPx = SIA_BOUNDARY_LABEL_BAND_OUTER_PX + SIA_BOUNDARY_LABEL_GAP_PX + halfHeight;
+                const tangent = { x: dx / segmentLength, y: dy / segmentLength };
+                /* Centre au milieu du bord, côté intérieur ; le contrôle du cadre
+                 * (coûteux) n'est fait qu'à la demande, au moment du choix. */
+                const pointAt = (shift, normal) => L.point(
+                    midpoint.x + tangent.x * shift * segmentLength + normal.x * inwardInsetPx,
+                    midpoint.y + tangent.y * shift * segmentLength + normal.y * inwardInsetPx
+                );
+                const isUsableCenter = point => {
+                    const latlng = map.containerPointToLatLng(point);
+                    return bounds.contains(latlng) && siaGeometryContainsLatLng(geometry, latlng) ? latlng : null;
+                };
+                let firstPoint = null;
+                let firstLatLng = null;
+                for (const normal of normals) {
+                    const point = pointAt(0, normal);
+                    const latlng = isUsableCenter(point);
+                    if (latlng) { firstPoint = point; firstLatLng = latlng; break; }
+                }
+                if (firstPoint) {
+                    const inwardPlacement = {
+                        latlng: firstLatLng,
+                        point: firstPoint,
+                        angle,
+                        lengthPx,
+                        insetPx: inwardInsetPx,
+                        inward: true,
+                        fit: undefined
+                    };
+                    /* Milieu du bord d'abord, puis glissé d'un quart vers chaque bout. */
+                    inwardPlacement.resolveFit = () => {
+                        let best = null;
+                        for (const shift of [0, -0.25, 0.25]) {
+                            for (const normal of normals) {
+                                const point = pointAt(shift, normal);
+                                const latlng = isUsableCenter(point);
+                                if (!latlng) continue;
+                                const fit = getSiaBoundaryLabelBoxFit(
+                                    geometry, ringPointLists, point, tangent, normal, halfWidth, halfHeight
+                                );
+                                if (!best || fit < best.fit) best = { point, latlng, fit };
+                                if (fit === 0) break;
+                            }
+                            if (best && best.fit === 0) break;
+                        }
+                        if (best) {
+                            inwardPlacement.point = best.point;
+                            inwardPlacement.latlng = best.latlng;
+                            inwardPlacement.fit = best.fit;
+                        } else {
+                            inwardPlacement.fit = 2;
+                        }
+                        return inwardPlacement.fit;
+                    };
+                    placements.push(inwardPlacement);
+                }
+            }
+
+            const insetDistances = [22, 30, 38];
+            let insidePlacement = null;
+
+            for (const insetPx of insetDistances) {
+                for (const normal of normals) {
+                    const point = L.point(
+                        midpoint.x + normal.x * insetPx,
+                        midpoint.y + normal.y * insetPx
+                    );
+                    const latlng = map.containerPointToLatLng(point);
+                    if (!bounds.contains(latlng)) continue;
+                    if (!siaGeometryContainsLatLng(geometry, latlng)) continue;
+
+                    insidePlacement = {
+                        latlng,
+                        point,
+                        angle,
+                        lengthPx,
+                        insetPx
+                    };
+                    break;
+                }
+                if (insidePlacement) break;
+            }
+
+            if (insidePlacement) placements.push(insidePlacement);
+        }
+    });
+
+    /*
+     * Les segments les plus longs sont essayés d'abord. En cas de collision,
+     * addSiaAirspaceBoundaryLabel() essaie les suivants au lieu d'abandonner.
+     */
+    /* v17.53 — C : placements vers l'intérieur d'abord (le choix final par
+     * qualité du cadre est fait dans addSiaAirspaceBoundaryLabel), l'ancien
+     * placement en dernier recours (aucun libellé ne disparaît). */
+    placements.sort((a, b) => {
+        if (!!a.inward !== !!b.inward) return a.inward ? -1 : 1;
+        if (!!a.interior !== !!b.interior) return a.interior ? -1 : 1;
+        if (a.lengthPx !== b.lengthPx) return b.lengthPx - a.lengthPx;
+        return b.insetPx - a.insetPx;
+    });
+
+    return placements;
+}
+
+function addSiaAirspaceBoundaryLabel(item, geometry, labelState) {
+    if (!siaLayerGroup || !map || !item || !geometry) return null;
+    if (isCurrentOfflineOaciMap()) return null;
+    if (Number(item?.co || 0) === 1) return null;
+
+    /* v15.81 — à partir de l'échelle 10 NM en dézoomant, conserver les zones
+     * mais supprimer leurs noms/fréquences/altitudes pour alléger la carte. */
+    if (getCurrentNpfScaleNm() >= 10) return null;
+
+    const type = String(geometry.type || '');
+    if (type !== 'Polygon' && type !== 'MultiPolygon') return null;
+
+    const state = labelState || { points: [], count: 0 };
+    if (state.count >= 70) return null;
+
+    const text = getSiaAirspaceBoundaryLabelText(item);
+    if (!text) return null;
+    const frequencyText = getSiaAirspaceBoundaryFrequencyText(item);
+    const verticalText = getSiaAirspaceBoundaryVerticalText(item);
+
+    const priority = getSiaBoundaryLabelPriority(item);
+    const nearFiveNm = getCurrentNpfScaleNm() <= 5.000001;
+    const isSiv = isSiaFlightInformationSector(item);
+    /* v17.53 — C : même contenu qu'avant ; la rotation est ajoutée à la pose. */
+    const labelInnerHtml = `<div class="sia-boundary-label-text${String(item?.t || '').trim().toUpperCase() === 'P' ? ' sia-prohibited-label' : ''}${isSiv ? ' sia-siv-label' : ''}${nearFiveNm ? ' sia-zone-label-near' : ''}" style="transform:translate(-50%,-50%) rotate(@@ANGLE@@deg)"><div class="sia-boundary-label-main">${escapeHtml(text)}</div>${frequencyText ? `<div class="sia-boundary-label-frequency">${escapeHtml(frequencyText)}</div>` : ''}${verticalText ? `<div class="sia-boundary-label-altitude">${escapeHtml(verticalText)}</div>` : ''}</div>`;
+    const labelSize = measureSiaBoundaryLabelSize(labelInnerHtml.replace('@@ANGLE@@', '0'));
+
+    const placements = findSiaBoundaryLabelPlacements(item, geometry, labelSize);
+    if (!placements.length) return null;
+
+    const collisionDistance = (priority <= 20 ? 92 : 105) + (nearFiveNm ? 18 : 0) + (isSiv ? 12 : 0);
+    const isFree = candidate => !state.points.some(point => point.distanceTo(candidate.point) < collisionDistance);
+    /* v17.53 — C : meilleur cadre parmi les places libres, contrôlé à la
+     * demande (au plus 24 contrôles) : 0 = entièrement dans la zone, hors
+     * bordures ; 1 = dans la zone ; 2 = centre seul ; 3 = ancien placement. */
+    let placement = null;
+    let placementRank = Infinity;
+    let fitChecks = 0;
+    for (const candidate of placements) {
+        let rank = 3;
+        if (candidate.inward) {
+            if (candidate.fit === undefined && typeof candidate.resolveFit === 'function') {
+                if (fitChecks >= 24) continue;
+                fitChecks += 1;
+                candidate.resolveFit();
+            }
+            rank = Number.isFinite(candidate.fit) ? candidate.fit : 2;
+        }
+        if (rank >= placementRank) continue;
+        if (!isFree(candidate)) continue;
+        placement = candidate;
+        placementRank = rank;
+        if (rank === 0) break;
+    }
+    if (!placement) return null;
+
+    const marker = L.marker(placement.latlng, {
+        pane: 'siaAirspacePane',
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({
+            className: 'sia-boundary-label-icon',
+            html: labelInnerHtml.replace('@@ANGLE@@', placement.angle.toFixed(1)),
+            iconSize: [1, 1],
+            iconAnchor: [0, 0]
+        })
+    });
+
+    marker.addTo(siaLayerGroup);
+    state.points.push(placement.point);
+    state.count += 1;
+    return marker;
+}
+
+function getCurrentNpfScaleNm() {
+    if (!map || !map.getSize || !map.containerPointToLatLng || !map.distance) return Infinity;
+    const size = map.getSize();
+    if (!size || !size.x || !size.y) return Infinity;
+
+    const samplePixels = Math.min(160, Math.max(80, Math.floor(size.x * 0.16)));
+    const y = Math.max(10, Math.floor(size.y / 2));
+    const x1 = Math.max(5, Math.floor((size.x - samplePixels) / 2));
+    const x2 = x1 + samplePixels;
+
+    const ll1 = map.containerPointToLatLng(L.point(x1, y));
+    const ll2 = map.containerPointToLatLng(L.point(x2, y));
+    const meters = map.distance(ll1, ll2);
+    const metersPerPixel = meters / samplePixels;
+    if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) return Infinity;
+
+    return chooseNiceNauticalScale((metersPerPixel * 110) / 1852);
+}
+
+function shouldDisplaySiaDesignatedPoints() {
+    return getCurrentNpfScaleNm() <= 5.000001;
+}
+
+function getSiaCtrSelectionKey(item) {
+    return [
+        String(item?.t || ''),
+        String(item?.l || ''),
+        String(item?.c || ''),
+        String(item?.n || ''),
+        JSON.stringify(item?.lo || null),
+        JSON.stringify(item?.up || null)
+    ].join('|');
+}
+
+function getSiaAirspaceSelectionColor(item) {
+    try {
+        return String(getSiaAirspaceStyle(item)?.color || '#0066ff');
+    } catch (_) {
+        return '#0066ff';
+    }
+}
+
+function ensureSiaSelectionLayer() {
+    if (!map) return null;
+    ensureSiaMapPanes();
+
+    if (!siaSelectionLayer) {
+        siaSelectionLayer = L.layerGroup().addTo(map);
+    }
+    return siaSelectionLayer;
+}
+
+function clearSiaSelectionHighlight() {
+    if (siaSelectionLayer) {
+        try { siaSelectionLayer.clearLayers(); } catch (_) {}
+    }
+}
+
+function drawSiaSelectionHighlight(item, geometry) {
+    if (!map || !item || !geometry) return;
+
+    const targetLayer = ensureSiaSelectionLayer();
+    if (!targetLayer) return;
+
+    clearSiaSelectionHighlight();
+
+    const selectionColor = getSiaAirspaceSelectionColor(item);
+    const feature = {
+        type: 'Feature',
+        properties: {},
+        geometry
+    };
+
+    const highlight = L.geoJSON(feature, {
+        pane: 'siaSelectionPane',
+        renderer: siaSelectionRenderer || undefined,
+        interactive: false,
+        style: {
+            color: selectionColor,
+            weight: 2.6,
+            opacity: 1,
+            fillColor: selectionColor,
+            fillOpacity: 0.30,
+            lineCap: 'round',
+            lineJoin: 'round',
+            interactive: false
+        },
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+            pane: 'siaSelectionPane',
+            renderer: siaSelectionRenderer || undefined,
+            radius: 11,
+            color: selectionColor,
+            weight: 3,
+            opacity: 1,
+            fillColor: selectionColor,
+            fillOpacity: 0.30,
+            interactive: false
+        })
+    });
+
+    highlight.addTo(targetLayer);
+}
+
+function resetSelectedSiaCtrTouchLayer(clearKey = true) {
+    clearSiaSelectionHighlight();
+    siaSelectedCtrTouchLayer = null;
+    siaSelectedAirspaceItem = null;
+    siaSelectedAirspaceGeometry = null;
+    if (clearKey) siaSelectedCtrKey = null;
+}
+
+function selectSiaCtrTouchLayer(layer, item, latlng, geometry = null, options = {}) {
+    if (!map || !item) return;
+
+    const selectionKey = getSiaCtrSelectionKey(item);
+
+    if (siaSelectedCtrKey && siaSelectedCtrKey !== selectionKey) {
+        resetSelectedSiaCtrTouchLayer(false);
+    }
+
+    /*
+     * v15.59 — la coloration ne dépend plus de la couche tactile.
+     * Une popup Leaflet avec autoPan peut déclencher moveend puis reconstruire
+     * les couches SIA. La géométrie sélectionnée est donc surlignée dans une
+     * couche indépendante qui survit au rafraîchissement.
+     */
+    let selectedGeometry = geometry;
+    if (!selectedGeometry) {
+        const currentEntry = siaAirspaceTouchEntries.find(entry =>
+            entry?.layer === layer
+            || getSiaCtrSelectionKey(entry?.item) === selectionKey
+        );
+        selectedGeometry = currentEntry?.geometry || null;
+        if (currentEntry?.layer) layer = currentEntry.layer;
+    }
+
+    siaSelectedCtrTouchLayer = layer || null;
+    siaSelectedCtrKey = selectionKey;
+    siaSelectedAirspaceItem = item;
+    siaSelectedAirspaceGeometry = selectedGeometry;
+
+    if (selectedGeometry) {
+        drawSiaSelectionHighlight(item, selectedGeometry);
+    }
+
+    const popupLatLng = latlng;
+    if (!popupLatLng) return;
+
+    const choiceOrigin = options?.choiceOrigin
+        ? L.latLng(Number(options.choiceOrigin.lat), Number(options.choiceOrigin.lng))
+        : null;
+
+    let popupContent = buildSiaAirspacePopup(item);
+    if (choiceOrigin && Number.isFinite(choiceOrigin.lat) && Number.isFinite(choiceOrigin.lng)) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'sia-airspace-detail-with-return';
+
+        const backButton = document.createElement('button');
+        backButton.type = 'button';
+        backButton.className = 'sia-airspace-choice-return';
+        backButton.textContent = '← RETOUR';
+        backButton.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            resetSelectedSiaCtrTouchLayer(true);
+            try { map.closePopup(popup); } catch (_) {}
+
+            setTimeout(() => {
+                const freshCandidates = getSiaAirspaceTouchCandidates(choiceOrigin);
+                const returnCandidates = freshCandidates.length
+                    ? freshCandidates
+                    : (Array.isArray(options?.choiceCandidates) ? options.choiceCandidates : []);
+                if (returnCandidates.length) {
+                    openSiaAirspaceChoicePopup(choiceOrigin, returnCandidates);
+                }
+            }, 0);
+        });
+
+        const details = document.createElement('div');
+        details.innerHTML = popupContent;
+        wrapper.appendChild(backButton);
+        wrapper.appendChild(details);
+        popupContent = wrapper;
+    }
+
+    const popup = L.popup({
+        maxWidth: 400,
+        /*
+         * v15.77 — en Suivi, la position/trajectoire de l'avion est prioritaire.
+         * La popup reste ancrée à la zone et peut sortir de l'écran ; Leaflet ne
+         * déplace plus la carte en sens inverse pour la garder visible.
+         */
+        autoPan: !centerGpsFollowActive,
+        keepInView: !centerGpsFollowActive,
+        className: 'sia-airspace-dialog-popup sia-airspace-detail-popup'
+    })
+        .setLatLng(popupLatLng)
+        .setContent(popupContent)
+        .openOn(map);
+
+    const onPopupClose = event => {
+        if (event?.popup !== popup) return;
+        map.off('popupclose', onPopupClose);
+
+        /*
+         * La couche tactile a pu être reconstruite pendant l'autoPan.
+         * On compare donc la clé métier, pas la référence Leaflet du layer.
+         */
+        if (siaSelectedCtrKey === selectionKey) {
+            resetSelectedSiaCtrTouchLayer(true);
+        }
+    };
+    map.on('popupclose', onPopupClose);
+}
+
+function siaPointInRing(lng, lat, ring) {
+    if (!Array.isArray(ring) || ring.length < 3) return false;
+    let inside = false;
+
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i];
+        const b = ring[j];
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) continue;
+
+        const xi = Number(a[0]);
+        const yi = Number(a[1]);
+        const xj = Number(b[0]);
+        const yj = Number(b[1]);
+        if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+
+        const intersects = ((yi > lat) !== (yj > lat))
+            && (lng < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+        if (intersects) inside = !inside;
+    }
+
+    return inside;
+}
+
+function siaPointInPolygonCoordinates(lng, lat, polygonCoordinates) {
+    if (!Array.isArray(polygonCoordinates) || !polygonCoordinates.length) return false;
+    if (!siaPointInRing(lng, lat, polygonCoordinates[0])) return false;
+
+    // Trous éventuels du polygone.
+    for (let i = 1; i < polygonCoordinates.length; i += 1) {
+        if (siaPointInRing(lng, lat, polygonCoordinates[i])) return false;
+    }
+    return true;
+}
+
+function siaDistancePointToSegmentPx(point, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return Infinity;
+
+    const lengthSq = dx * dx + dy * dy;
+    if (lengthSq <= 1e-9) return point.distanceTo(a);
+
+    let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq;
+    t = Math.max(0, Math.min(1, t));
+
+    return point.distanceTo(L.point(
+        a.x + t * dx,
+        a.y + t * dy
+    ));
+}
+
+function siaPointGeometryDistancePx(latlng, coordinate) {
+    if (!map || !latlng || !Array.isArray(coordinate) || coordinate.length < 2) return Infinity;
+    const lng = Number(coordinate[0]);
+    const lat = Number(coordinate[1]);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return Infinity;
+
+    const a = map.latLngToLayerPoint(latlng);
+    const b = map.latLngToLayerPoint(L.latLng(lat, lng));
+    return a.distanceTo(b);
+}
+
+function siaLineGeometryDistancePx(latlng, coordinates) {
+    if (!map || !latlng || !Array.isArray(coordinates) || coordinates.length < 2) return Infinity;
+
+    const point = map.latLngToLayerPoint(latlng);
+    let best = Infinity;
+
+    for (let i = 1; i < coordinates.length; i += 1) {
+        const c1 = coordinates[i - 1];
+        const c2 = coordinates[i];
+        if (!Array.isArray(c1) || !Array.isArray(c2) || c1.length < 2 || c2.length < 2) continue;
+
+        const a = map.latLngToLayerPoint(L.latLng(Number(c1[1]), Number(c1[0])));
+        const b = map.latLngToLayerPoint(L.latLng(Number(c2[1]), Number(c2[0])));
+        best = Math.min(best, siaDistancePointToSegmentPx(point, a, b));
+    }
+
+    return best;
+}
+
+function siaGeometryContainsLatLng(geometry, latlng) {
+    if (!geometry || !latlng) return false;
+    const lng = Number(latlng.lng);
+    const lat = Number(latlng.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
+
+    if (geometry.type === 'Polygon') {
+        return siaPointInPolygonCoordinates(lng, lat, geometry.coordinates);
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+        return (geometry.coordinates || []).some(poly =>
+            siaPointInPolygonCoordinates(lng, lat, poly)
+        );
+    }
+
+    /*
+     * v15.59 — une grande partie des D-OTHER SIA (AER, VOL, SUR, PJE,
+     * PRN, TRVL, TRPLA, AP, BAL...) est publiée comme un point AIXM.
+     * La sélection est donc faite avec une tolérance tactile en pixels.
+     */
+    if (geometry.type === 'Point') {
+        return siaPointGeometryDistancePx(latlng, geometry.coordinates) <= 30;
+    }
+
+    if (geometry.type === 'MultiPoint') {
+        return (geometry.coordinates || []).some(coord =>
+            siaPointGeometryDistancePx(latlng, coord) <= 30
+        );
+    }
+
+    // Prévu également pour d'éventuelles géométries linéaires futures.
+    if (geometry.type === 'LineString') {
+        return siaLineGeometryDistancePx(latlng, geometry.coordinates) <= 18;
+    }
+
+    if (geometry.type === 'MultiLineString') {
+        return (geometry.coordinates || []).some(line =>
+            siaLineGeometryDistancePx(latlng, line) <= 18
+        );
+    }
+
+    return false;
+}
+
+function getSiaAirspaceChoicePriority(item) {
+    /* v15.81 — Sélection Zone : les SIV sont toujours présentés en premier. */
+    if (isSiaFlightInformationSector(item)) return 0;
+
+    const type = String(item?.t || '').toUpperCase();
+    if (type === 'CTR') return 10;
+    if (type === 'P' || type === 'R' || type === 'D' || type === 'TRA') return 20;
+    if (type === 'TMA') return 30;
+    if (type === 'CTA') return 40;
+    if (type === 'D-OTHER') return 50;
+    if (type === 'RAS' || type === 'SECTOR' || type === 'SECTOR-C') return 60;
+    if (type === 'OCA' || type === 'UTA') return 70;
+    if (type === 'FIR' || type === 'UIR' || type === 'UIR-P') return 80;
+    return 90;
+}
+
+function getSiaAlwaysSelectableSivCandidates(latlng, existingEntries = []) {
+    const dataset = siaDataset;
+    if (!dataset || !Array.isArray(dataset.airspaces) || !latlng) return [];
+
+    const lat = Number(latlng.lat);
+    const lng = Number(latlng.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+
+    const existingKeys = new Set(
+        (Array.isArray(existingEntries) ? existingEntries : [])
+            .map(entry => getSiaCtrSelectionKey(entry?.item))
+            .filter(Boolean)
+    );
+
+    const matches = [];
+    for (const item of dataset.airspaces) {
+        if (!isSiaFlightInformationSector(item)) continue;
+        if (isSiaTechnicalSivParent(item, dataset)) continue;
+        if (!item?.g) continue;
+
+        const bounds = Array.isArray(item?.b) ? item.b : null;
+        if (bounds && bounds.length >= 4) {
+            const minLng = Number(bounds[0]);
+            const minLat = Number(bounds[1]);
+            const maxLng = Number(bounds[2]);
+            const maxLat = Number(bounds[3]);
+            if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
+                if (lng < minLng || lng > maxLng || lat < minLat || lat > maxLat) continue;
+            }
+        }
+
+        const key = getSiaCtrSelectionKey(item);
+        if (key && existingKeys.has(key)) continue;
+
+        const geometry = getSiaCachedGeometry(item);
+        if (!geometry || !siaGeometryContainsLatLng(geometry, latlng)) continue;
+
+        matches.push({
+            item,
+            geometry,
+            layer: null,
+            hiddenSivCandidate: !isSiaFilterEnabled('ase:SIV')
+        });
+        if (key) existingKeys.add(key);
+    }
+
+    return matches;
+}
+
+function getSiaHiddenFilteredAirspaceCandidates(latlng, existingEntries = []) {
+    if (siaMapAirspacesVisible) return [];
+    const dataset = siaDataset;
+    if (!dataset || !Array.isArray(dataset.airspaces) || !latlng) return [];
+
+    const lat = Number(latlng.lat);
+    const lng = Number(latlng.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+
+    const operationalFamilies = buildSiaTmaOperationalFamilySet(dataset);
+    const existingKeys = new Set(
+        (Array.isArray(existingEntries) ? existingEntries : [])
+            .map(entry => getSiaCtrSelectionKey(entry?.item))
+            .filter(Boolean)
+    );
+    const matches = [];
+
+    for (const item of dataset.airspaces) {
+        if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
+        if (shouldHideSiaAirspaceAboveFl115(item)) continue;
+        if (isSiaTechnicalTmaUnionParent(item)) continue;
+        if (isSiaTechnicalSivParent(item, dataset)) continue;
+        if (isSiaGenericTmaWithoutAltitude(item, operationalFamilies)) continue;
+        if (!item?.g) continue;
+
+        const bounds = Array.isArray(item?.b) ? item.b : null;
+        if (bounds && bounds.length >= 4) {
+            const minLng = Number(bounds[0]);
+            const minLat = Number(bounds[1]);
+            const maxLng = Number(bounds[2]);
+            const maxLat = Number(bounds[3]);
+            if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
+                if (lng < minLng || lng > maxLng || lat < minLat || lat > maxLat) continue;
+            }
+        }
+
+        const key = getSiaCtrSelectionKey(item);
+        if (key && existingKeys.has(key)) continue;
+        const geometry = getSiaCachedGeometry(item);
+        if (!geometry || !siaGeometryContainsLatLng(geometry, latlng)) continue;
+
+        matches.push({ item, geometry, layer: null, hiddenMapCandidate: true });
+        if (key) existingKeys.add(key);
+    }
+
+    return matches;
+}
+
+function getSiaAirspaceTouchCandidates(latlng) {
+    const operationalFamilies = buildSiaTmaOperationalFamilySet(siaDataset);
+
+    const visibleCandidates = siaAirspaceTouchEntries
+        .filter(entry => !isSiaTechnicalTmaUnionParent(entry.item))
+        .filter(entry => !isSiaTechnicalSivParent(entry.item, siaDataset))
+        .filter(entry => !isSiaGenericTmaWithoutAltitude(entry.item, operationalFamilies))
+        .filter(entry => siaGeometryContainsLatLng(entry.geometry, latlng));
+
+    const hiddenFilteredCandidates = getSiaHiddenFilteredAirspaceCandidates(latlng, visibleCandidates);
+    const candidates = visibleCandidates
+        .concat(hiddenFilteredCandidates)
+        .concat(getSiaAlwaysSelectableSivCandidates(latlng, visibleCandidates.concat(hiddenFilteredCandidates)));
+
+    return candidates.sort((a, b) => {
+        const pa = getSiaAirspaceChoicePriority(a.item);
+        const pb = getSiaAirspaceChoicePriority(b.item);
+        if (pa !== pb) return pa - pb;
+
+        const aa = Array.isArray(a.item?.b) && a.item.b.length >= 4
+            ? Math.abs((Number(a.item.b[2]) - Number(a.item.b[0])) * (Number(a.item.b[3]) - Number(a.item.b[1])))
+            : Infinity;
+        const ab = Array.isArray(b.item?.b) && b.item.b.length >= 4
+            ? Math.abs((Number(b.item.b[2]) - Number(b.item.b[0])) * (Number(b.item.b[3]) - Number(b.item.b[1])))
+            : Infinity;
+        return aa - ab;
+    });
+}
+
+function getSiaAirspaceChoiceLabel(item) {
+    return getSiaAirspaceDisplayTitle(item);
+}
+
+function getSiaAirspaceChoiceVerticalLabel(item) {
+    const hasLower = hasSiaVerticalValue(item?.lo);
+    const hasUpper = hasSiaVerticalValue(item?.up);
+    if (!hasLower && !hasUpper) return '';
+
+    const lower = hasLower ? formatSiaVertical(item.lo) : '—';
+    const upper = hasUpper ? formatSiaVertical(item.up) : '—';
+    return `${lower} / ${upper}`;
+}
+
+function openSiaAirspaceChoicePopup(latlng, candidates) {
+    if (!map || !latlng || !Array.isArray(candidates) || !candidates.length) return;
+
+    const container = document.createElement('div');
+    container.className = 'sia-airspace-choice';
+
+    const title = document.createElement('div');
+    title.className = 'sia-airspace-choice-title';
+    title.textContent = 'ESPACES À CET ENDROIT';
+    container.appendChild(title);
+
+    const list = document.createElement('div');
+    list.className = 'sia-airspace-choice-list';
+
+    candidates.forEach(entry => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'sia-airspace-choice-button';
+
+        const nameLine = document.createElement('div');
+        nameLine.className = 'sia-airspace-choice-name';
+        nameLine.textContent = getSiaAirspaceChoiceLabel(entry.item);
+        button.appendChild(nameLine);
+
+        const verticalLabel = getSiaAirspaceChoiceVerticalLabel(entry.item);
+        if (verticalLabel) {
+            const verticalLine = document.createElement('div');
+            verticalLine.className = 'sia-airspace-choice-vertical';
+            verticalLine.textContent = verticalLabel;
+            button.appendChild(verticalLine);
+        }
+
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            try { map.closePopup(); } catch (_) {}
+            selectSiaCtrTouchLayer(
+                entry.layer,
+                entry.item,
+                latlng,
+                entry.geometry,
+                { choiceOrigin: latlng, choiceCandidates: candidates }
+            );
+        });
+
+        list.appendChild(button);
+    });
+
+    container.appendChild(list);
+
+    L.popup({
+        maxWidth: 390,
+        closeButton: true,
+        autoPan: !centerGpsFollowActive,
+        keepInView: !centerGpsFollowActive,
+        className: 'sia-airspace-dialog-popup sia-airspace-choice-popup'
+    })
+        .setLatLng(latlng)
+        .setContent(container)
+        .openOn(map);
+}
+
+function handleSiaAirspaceTouch(latlng) {
+    const candidates = getSiaAirspaceTouchCandidates(latlng);
+
+    if (!candidates.length) return;
+    if (candidates.length === 1) {
+        selectSiaCtrTouchLayer(
+            candidates[0].layer,
+            candidates[0].item,
+            latlng,
+            candidates[0].geometry
+        );
+        return;
+    }
+
+    /*
+     * Plusieurs zones se superposent : le z-index ne choisit jamais à la place
+     * de l'utilisateur. On propose toutes les zones actives contenant le point.
+     */
+    openSiaAirspaceChoicePopup(latlng, candidates);
+}
+
+function addSiaCtrTouchSurface(feature) {
+    if (!siaLayerGroup || !feature?.geometry || !feature?.properties?.siaItem) return null;
+    const item = feature.properties.siaItem;
+    const selectionColor = getSiaAirspaceSelectionColor(item);
+    const geometryType = String(feature?.geometry?.type || '');
+    const isDirectDotherPoint = String(item?.t || '').trim().toUpperCase() === 'D-OTHER'
+        && (geometryType === 'Point' || geometryType === 'MultiPoint');
+
+    /*
+     * v15.75 — optimisation iPad majeure : les volumes surfaciques ne créent
+     * plus chacun un second GeoJSON invisible de 30 px uniquement pour le toucher.
+     * Leur géométrie est conservée ici et testée à la demande lors de
+     * « Sélection Zone ». Les D-OTHER ponctuels gardent seuls une hitbox afin
+     * de conserver leur ouverture par appui court.
+     */
+    if (!isDirectDotherPoint) {
+        siaAirspaceTouchEntries.push({
+            item,
+            geometry: feature.geometry,
+            layer: null
+        });
+        return null;
+    }
+
+    const neutralizeShortClick = event => {
+        /*
+         * v15.75 — en mode CRÉER/MODIFIER GAAR, les grandes surfaces tactiles
+         * SIA couvrent souvent toute la carte. Elles transfèrent alors le clic
+         * au créateur GAAR au lieu de l'absorber.
+         */
+        if (isDrawingMode && event?.latlng) {
+            handleGaarMapClick(event, { fromSiaSurface: true }).catch(() => {});
+        }
+        try {
+            if (event?.originalEvent) {
+                L.DomEvent.stopPropagation(event.originalEvent);
+                L.DomEvent.preventDefault(event.originalEvent);
+            }
+        } catch (_) {}
+    };
+
+    const touchGeoJson = L.geoJSON(feature, {
+        pane: 'siaCtrTouchPane',
+        renderer: siaCtrTouchRenderer || undefined,
+
+        /*
+         * v15.59 — important pour les D-OTHER ponctuels :
+         * sans pointToLayer, Leaflet crée son Marker PNG par défaut. Dans la
+         * PWA, l'icône peut être absente et apparaître sous forme de « ? ».
+         * On utilise maintenant un cercle SVG tactile quasi invisible.
+         */
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+            pane: 'siaCtrTouchPane',
+            renderer: siaCtrTouchRenderer || undefined,
+            radius: 30,
+            stroke: false,
+            color: selectionColor,
+            opacity: 0,
+            fill: true,
+            fillColor: selectionColor,
+            fillOpacity: 0.002,
+            interactive: true,
+            bubblingMouseEvents: false,
+            keyboard: false,
+            className: 'sia-airspace-touch-surface'
+        }),
+
+        style: geoFeature => {
+            const geometryType = String(geoFeature?.geometry?.type || '');
+
+            if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+                return {
+                    color: selectionColor,
+                    weight: 30,
+                    opacity: 0.002,
+                    fillOpacity: 0,
+                    interactive: true,
+                    className: 'sia-airspace-touch-surface'
+                };
+            }
+
+            return {
+                color: 'transparent',
+                weight: 0,
+                opacity: 0,
+                fillColor: selectionColor,
+                fillOpacity: 0.001,
+                interactive: true,
+                className: 'sia-airspace-touch-surface'
+            };
+        },
+
+        onEachFeature: (geoFeature, layer) => {
+            const geometryType = String(geoFeature?.geometry?.type || '');
+            const isDirectDotherPoint = String(item?.t || '').trim().toUpperCase() === 'D-OTHER'
+                && (geometryType === 'Point' || geometryType === 'MultiPoint');
+
+            if (isDirectDotherPoint) {
+                /*
+                 * v15.69 — les activités D-OTHER ponctuelles sont de vrais
+                 * symboles opérationnels : un appui court ouvre directement leur
+                 * fiche. L'appui long carte reste disponible pour les volumes.
+                 */
+                layer.on('click', event => {
+                    if (isDrawingMode && event?.latlng) {
+                        handleGaarMapClick(event, { fromSiaSurface: true }).catch(() => {});
+                        try {
+                            if (event?.originalEvent) {
+                                L.DomEvent.stopPropagation(event.originalEvent);
+                                L.DomEvent.preventDefault(event.originalEvent);
+                            }
+                        } catch (_) {}
+                        return;
+                    }
+                    try {
+                        if (event?.originalEvent) {
+                            L.DomEvent.stopPropagation(event.originalEvent);
+                            L.DomEvent.preventDefault(event.originalEvent);
+                        }
+                    } catch (_) {}
+
+                    const popupPoint = event?.latlng
+                        || (geometryType === 'Point'
+                            ? L.latLng(Number(geoFeature.geometry.coordinates[1]), Number(geoFeature.geometry.coordinates[0]))
+                            : null);
+                    if (!popupPoint) return;
+                    selectSiaCtrTouchLayer(
+                        touchGeoJson,
+                        item,
+                        popupPoint,
+                        feature.geometry,
+                        { directPoint: true }
+                    );
+                });
+            } else {
+                /*
+                 * Les volumes restent sélectionnés par appui long puis
+                 * « Sélection Zone » afin de gérer correctement les superpositions.
+                 */
+                layer.on('click', neutralizeShortClick);
+            }
+        }
+    });
+
+    touchGeoJson.addTo(siaLayerGroup);
+    siaAirspaceTouchEntries.push({
+        item,
+        geometry: feature.geometry,
+        layer: touchGeoJson
+    });
+
+    return touchGeoJson;
+}
+
+/*
+ * v17.51 — voiles légers des zones P (interdites, rouge 0,12) et D
+ * (dangereuses, couleur du contour 0,06), à 5 NM et au-dessus seulement.
+ * Simple remplissage des formes déjà dessinées : aucune géométrie recalculée.
+ * Pas de voile sur la carte OACI hors ligne ; zones masquées = formes retirées
+ * = pas de voile. Aucune autre zone ne reçoit de voile ; bordures inchangées.
+ */
+const SIA_AIRSPACE_VEIL_OPACITY = { P: 0.12, D: 0.06 };
+const SIA_AIRSPACE_VEIL_MIN_SCALE_NM = 5;
+let siaAirspaceVeilLayers = [];
+let siaAirspaceVeilAppliedKey = null;
+
+function getSiaAirspaceVeilOpacity(type) {
+    const opacity = SIA_AIRSPACE_VEIL_OPACITY[type] || 0;
+    if (!opacity) return 0;
+    try {
+        if (isCurrentOfflineOaciMap()) return 0;
+        const scaleNm = getCurrentNpfScaleNm();
+        return Number.isFinite(scaleNm) && scaleNm >= SIA_AIRSPACE_VEIL_MIN_SCALE_NM - 1e-6 ? opacity : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
+/*
+ * v17.71 — contour des zones SIA affiché seulement à 10 NM ou moins (zoom 9 et plus) ; au-delà, trait
+ * invisible (voiles, liserés, noms et coloration de la sélection gardent leurs propres règles). Le style n'est
+ * retouché qu'au franchissement du seuil.
+ */
+const SIA_AIRSPACE_OUTLINE_MIN_ZOOM = 9;
+let siaAirspaceOutlineLayers = [];
+let siaAirspaceOutlineAppliedVisible = null;
+
+function isSiaAirspaceOutlineVisible() {
+    try { return !map || map.getZoom() >= SIA_AIRSPACE_OUTLINE_MIN_ZOOM; } catch (_) { return true; }
+}
+
+function applySiaAirspaceOutlines() {
+    const visible = isSiaAirspaceOutlineVisible();
+    if (visible === siaAirspaceOutlineAppliedVisible) return;
+    siaAirspaceOutlineAppliedVisible = visible;
+    for (const layer of siaAirspaceOutlineLayers) {
+        try {
+            const opacity = visible ? Number(layer.options.npfOutlineOpacity ?? 0.95) : 0;
+            if (layer._map && layer.options.opacity !== opacity) layer.setStyle({ opacity });
+        } catch (_) {}
+    }
+}
+
+function applySiaAirspaceVeils() {
+    if (!siaAirspaceVeilLayers.length) return;
+    const key = getSiaAirspaceVeilOpacity('P') + '|' + getSiaAirspaceVeilOpacity('D');
+    if (key === siaAirspaceVeilAppliedKey) return;
+    siaAirspaceVeilAppliedKey = key;
+    for (const layer of siaAirspaceVeilLayers) {
+        try {
+            const type = String(layer?.feature?.properties?.siaItem?.t || '');
+            const opacity = getSiaAirspaceVeilOpacity(type);
+            if (layer._map && layer.options.fillOpacity !== opacity) layer.setStyle({ fillOpacity: opacity });
+        } catch (_) {}
+    }
+}
+
+function clearSiaZoomDependentLayers() {
+    if (!siaLayerGroup || !Array.isArray(siaZoomDependentLayers)) {
+        siaZoomDependentLayers = [];
+        return;
+    }
+    siaZoomDependentLayers.forEach(layer => {
+        try { siaLayerGroup.removeLayer(layer); } catch (_) {}
+    });
+    siaZoomDependentLayers = [];
+}
+
+function getSiaDecorationFeaturesForCurrentView(features) {
+    if (!map || !Array.isArray(features) || !features.length) return [];
+    let viewportBounds = null;
+    try {
+        /* Petit débord seulement : ne pas décorer tout le tampon de rendu. */
+        viewportBounds = map.getBounds().pad(SIA_DECORATION_VIEW_PAD_RATIO);
+    } catch (_) {
+        viewportBounds = map.getBounds?.() || null;
+    }
+    if (!viewportBounds) return features;
+
+    return features.filter(feature => {
+        const item = feature?.properties?.siaItem;
+        if (!item) return false;
+        return siaBoundsIntersects(item.b, viewportBounds);
+    });
+}
+
+function renderSiaZoomDependentDecorations(features) {
+    const npfDiagStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+    clearSiaZoomDependentLayers();
+    if (!siaMapAirspacesVisible || !Array.isArray(features) || !features.length) return;
+
+    /*
+     * v16.33 — à grande échelle, les contours principaux suffisent. Les bandes
+     * intérieures et libellés impliquent des centaines de conversions écran et
+     * n'apportent pas d'information supplémentaire lorsque l'échelle est >= 10 NM.
+     * Les zones, leurs contours et la sélection restent intégralement disponibles.
+     */
+    const scaleNm = getCurrentNpfScaleNm();
+    const combinedHeavyDecorationLoad = !!(siaMapAirspacesVisible && showRoadOverlayLayer && showHighVoltageLinesLayer);
+    /* v17.58 — C (essai) : noms et bordures dès 5 NM avec HT + Routes. */
+    const combinedHeavyLightweight = combinedHeavyDecorationLoad && Number.isFinite(scaleNm) && scaleNm > 5.000001;
+    if (scaleNm >= SIA_DECORATION_LIGHTWEIGHT_SCALE_NM || combinedHeavyLightweight) {
+        npfDiagSiaInteraction(
+            'SIA DÉCORATIONS',
+            `zones=0/${features.length} · labels=0 · zoom=${map?.getZoom?.() ?? '—'} · allégées=oui · charge-combinée=${combinedHeavyLightweight ? 'oui' : 'non'} · echelle=${Number.isFinite(scaleNm) ? scaleNm.toFixed(1) : '—'}NM`,
+            { dureeMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagStartedAt) }
+        );
+        return;
+    }
+
+    /*
+     * Les volumes sont chargés avec un tampon pour éviter les reconstructions
+     * permanentes. En revanche, bandes intérieures et libellés ne sont utiles
+     * qu'autour de la vue courante : ne pas les créer pour toutes les zones du tampon.
+     */
+    const decorationFeatures = getSiaDecorationFeaturesForCurrentView(features);
+    const labelState = { points: [], count: 0 };
+    /* v17.52 — bordures : gestionnaire dédié (gardées, complétées par lots). */
+    scheduleSiaInnerBandsSync('decorations');
+
+    decorationFeatures
+        .filter(feature => Number(feature?.properties?.siaItem?.co || 0) !== 1)
+        .sort((a, b) =>
+            getSiaBoundaryLabelPriority(a.properties.siaItem)
+            - getSiaBoundaryLabelPriority(b.properties.siaItem)
+        )
+        .forEach(feature => {
+            const marker = addSiaAirspaceBoundaryLabel(
+                feature.properties.siaItem,
+                feature.geometry,
+                labelState
+            );
+            if (marker) siaZoomDependentLayers.push(marker);
+        });
+
+    npfDiagSiaInteraction(
+        'SIA DÉCORATIONS',
+        `zones=${decorationFeatures.length}/${features.length} · labels=${labelState.count} · zoom=${map?.getZoom?.() ?? '—'}`,
+        { dureeMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagStartedAt) }
+    );
+}
+
+async function renderSiaZoomDependentDecorationsProgressive(features, refreshGeneration) {
+    const npfDiagStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+    const runId = ++siaDecorationProgressiveRun;
+    let bandMs = 0;
+    let labelMs = 0;
+    clearSiaZoomDependentLayers();
+    if (!siaMapAirspacesVisible || !Array.isArray(features) || !features.length) return;
+
+    /*
+     * v16.33 — mode allégé à grande échelle. Le GeoJSON principal reste visible
+     * et sélectionnable ; seules les décorations dépendantes des pixels écran
+     * (bandes intérieures / libellés) sont omises. Cela évite les blocs de 1–2 s
+     * observés au zoom 8/9 sur iPad, sans retirer aucune zone SIA.
+     */
+    const scaleNm = getCurrentNpfScaleNm();
+    const combinedHeavyDecorationLoad = !!(siaMapAirspacesVisible && showRoadOverlayLayer && showHighVoltageLinesLayer);
+    /* v17.58 — C (essai) : noms et bordures dès 5 NM avec HT + Routes. */
+    const combinedHeavyLightweight = combinedHeavyDecorationLoad && Number.isFinite(scaleNm) && scaleNm > 5.000001;
+    if (scaleNm >= SIA_DECORATION_LIGHTWEIGHT_SCALE_NM || combinedHeavyLightweight) {
+        throwIfSiaRefreshObsolete(refreshGeneration);
+        npfDiagSiaInteraction(
+            'SIA DÉCORATIONS',
+            `zones=0/${features.length} · labels=0 · zoom=${map?.getZoom?.() ?? '—'} · progressif=oui · allégées=oui · charge-combinée=${combinedHeavyLightweight ? 'oui' : 'non'} · echelle=${Number.isFinite(scaleNm) ? scaleNm.toFixed(1) : '—'}NM`,
+            { dureeMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagStartedAt) }
+        );
+        return;
+    }
+
+    const decorationFeatures = getSiaDecorationFeaturesForCurrentView(features);
+    const labelState = { points: [], count: 0 };
+
+    /* v16.65 — correction de régression : si les décorations SIA sont rendues,
+     * les bordures/bandes intérieures le sont elles aussi. La v16.64 les
+     * supprimait dès 5 NM (ou avec HT/Routes), alors que les libellés restaient
+     * visibles. Le mode global allégé >= 10 NM / charge combinée reste géré
+     * plus haut et continue, lui, à omettre toutes les décorations. */
+    const skipInnerBands = false;
+
+    let phaseBudgetStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+    const bandStartedAt = phaseBudgetStartedAt;
+    for (let index = 0; index < decorationFeatures.length; index += 1) {
+        throwIfSiaRefreshObsolete(refreshGeneration);
+        if (runId !== siaDecorationProgressiveRun) {
+            const error = new Error('Décorations SIA remplacées par une vue plus récente');
+            error.name = SIA_REFRESH_ABORT_ERROR_NAME;
+            throw error;
+        }
+        /* v17.52 — bordures : gestionnaire dédié (gardées, complétées par lots). */
+        if (!skipInnerBands && index === 0) scheduleSiaInnerBandsSync('decorations-progressives');
+        if (
+            NPF_STARTUP_DIAGNOSTIC.now() - phaseBudgetStartedAt
+            >= SIA_DECORATION_TIME_BUDGET_MS
+        ) {
+            await yieldSiaRefreshToMap(refreshGeneration);
+            phaseBudgetStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+        }
+    }
+    bandMs = NPF_STARTUP_DIAGNOSTIC.now() - bandStartedAt;
+
+    const labelFeatures = decorationFeatures
+        .filter(feature => Number(feature?.properties?.siaItem?.co || 0) !== 1)
+        .sort((a, b) =>
+            getSiaBoundaryLabelPriority(a.properties.siaItem)
+            - getSiaBoundaryLabelPriority(b.properties.siaItem)
+        );
+
+    phaseBudgetStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+    const labelStartedAt = phaseBudgetStartedAt;
+    for (let index = 0; index < labelFeatures.length; index += 1) {
+        throwIfSiaRefreshObsolete(refreshGeneration);
+        if (runId !== siaDecorationProgressiveRun) {
+            const error = new Error('Décorations SIA remplacées par une vue plus récente');
+            error.name = SIA_REFRESH_ABORT_ERROR_NAME;
+            throw error;
+        }
+        /* v17.58 — C : pas de calcul de nom pendant qu'un doigt est posé sur
+         * la carte (comme les bordures) ; reprise au relâchement. */
+        while (typeof isNpfMapFingerDown === 'function' && isNpfMapFingerDown()) {
+            await yieldSiaRefreshToMap(refreshGeneration);
+            phaseBudgetStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+        }
+        const feature = labelFeatures[index];
+        const marker = addSiaAirspaceBoundaryLabel(
+            feature.properties.siaItem,
+            feature.geometry,
+            labelState
+        );
+        if (marker) siaZoomDependentLayers.push(marker);
+        if (
+            NPF_STARTUP_DIAGNOSTIC.now() - phaseBudgetStartedAt
+            >= SIA_DECORATION_TIME_BUDGET_MS
+        ) {
+            await yieldSiaRefreshToMap(refreshGeneration);
+            phaseBudgetStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+        }
+    }
+    labelMs = NPF_STARTUP_DIAGNOSTIC.now() - labelStartedAt;
+    siaRenderedDiagnosticCounts.decorations = Number(
+        siaZoomDependentLayers?.length || 0
+    );
+    siaRenderedDiagnosticCounts.touchEntries = Number(
+        siaAirspaceTouchEntries?.length || 0
+    );
+
+    npfDiagSiaInteraction(
+        'SIA DÉCORATIONS',
+        `zones=${decorationFeatures.length}/${features.length} · labels=${labelState.count} · zoom=${map?.getZoom?.() ?? '—'} · progressif=oui · bandes=${skipInnerBands ? 'non' : 'oui'}`,
+        {
+            dureeMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagStartedAt),
+            bandMs: Math.round(bandMs),
+            labelMs: Math.round(labelMs)
+        }
+    );
+}
+
+function scheduleSiaMoveDecorationRefresh(reason = 'moveend-idle') {
+    clearTimeout(siaMoveDecorationRefreshTimer);
+
+    const scheduledGeneration = getSiaRefreshGeneration();
+
+    const attempt = async () => {
+        siaMoveDecorationRefreshTimer = null;
+
+        if (
+            !map
+            || !siaMapAirspacesVisible
+            || !Array.isArray(siaRenderedAirspaceFeatures)
+            || !siaRenderedAirspaceFeatures.length
+        ) {
+            return;
+        }
+
+        if (scheduledGeneration !== getSiaRefreshGeneration()) {
+            return;
+        }
+
+        const now = NPF_STARTUP_DIAGNOSTIC.now();
+        const quietFor = Math.max(0, now - Number(siaLastMapMotionAt || 0));
+
+        /*
+         * v16.87 — si un geste/zoom vient encore d'avoir lieu, ne pas commencer
+         * une reconstruction de 200–600 ms entre deux mouvements. On attend la
+         * fin réelle de l'activité carte.
+         */
+        if (quietFor < SIA_MOVE_DECORATION_IDLE_MS) {
+            const remaining = Math.max(
+                SIA_DECORATION_STABLE_RECHECK_MS,
+                SIA_MOVE_DECORATION_IDLE_MS - quietFor
+            );
+            siaMoveDecorationRefreshTimer = setTimeout(attempt, remaining);
+            return;
+        }
+
+        const viewKey = getSiaDecorationViewKey();
+        if (viewKey && viewKey === siaLastDecorationViewKey) {
+            npfDiagSiaInteraction(
+                'SIA DÉCORATIONS',
+                `raison=${reason} · vue déjà décorée · aucun recalcul · zoom=${map.getZoom()}`,
+                { dureeMs: 0, skippedDuplicate: 1 }
+            );
+            return;
+        }
+
+        const startedAt = NPF_STARTUP_DIAGNOSTIC.now();
+        const refreshGeneration = getSiaRefreshGeneration();
+
+        try {
+            await renderSiaZoomDependentDecorationsProgressive(
+                siaRenderedAirspaceFeatures,
+                refreshGeneration
+            );
+
+            if (
+                refreshGeneration === getSiaRefreshGeneration()
+                && getSiaDecorationViewKey() === viewKey
+            ) {
+                siaLastDecorationViewKey = viewKey;
+            }
+
+            scheduleSiaProfileRefresh('sia-moveend-idle-decorations');
+            npfDiagSiaInteraction(
+                'SIA RAFRAÎCHISSEMENT',
+                `raison=${reason} · décorations après stabilisation · zones=${siaRenderedAirspaceFeatures.length} · zoom=${map.getZoom()}`,
+                {
+                    totalMs: Math.round(
+                        NPF_STARTUP_DIAGNOSTIC.now() - startedAt
+                    ),
+                    stableMs: Math.round(
+                        NPF_STARTUP_DIAGNOSTIC.now()
+                        - Number(siaLastMapMotionAt || 0)
+                    )
+                }
+            );
+        } catch (error) {
+            if (error?.name !== SIA_REFRESH_ABORT_ERROR_NAME) {
+                console.warn('[SIA] Décorations différées impossibles:', error);
+            }
+        }
+    };
+
+    siaMoveDecorationRefreshTimer = setTimeout(
+        attempt,
+        SIA_MOVE_DECORATION_IDLE_MS
+    );
+}
+
+const SIA_REFRESH_ABORT_ERROR_NAME = 'NpfSiaRefreshAborted';
+
+function getSiaRefreshGeneration() {
+    return Number(window.__npfSiaRefreshGeneration) || 0;
+}
+
+function throwIfSiaRefreshObsolete(refreshGeneration) {
+    if (getSiaRefreshGeneration() === refreshGeneration) return;
+    const error = new Error('Rendu SIA devenu obsolète');
+    error.name = SIA_REFRESH_ABORT_ERROR_NAME;
+    throw error;
+}
+
+async function yieldSiaRefreshToMap(refreshGeneration) {
+    await new Promise(resolve => {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => resolve());
+        } else {
+            setTimeout(resolve, 0);
+        }
+    });
+    throwIfSiaRefreshObsolete(refreshGeneration);
+}
+
+async function addSiaDesignatedPointsToExistingCoverage(dataset, bounds, refreshGeneration) {
+    if (!map || !siaLayerGroup || !dataset || !bounds) return 0;
+    let rendered = 0;
+    let scanIndex = 0;
+    const zoom = map.getZoom();
+
+    for (const item of dataset.points || []) {
+        scanIndex += 1;
+        if (scanIndex % 512 === 0) {
+            await yieldSiaRefreshToMap(refreshGeneration);
+        }
+        if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
+        if (item.k === 'dpn:VRP' && !siaMapVrpVisible) continue;
+        const latlng = L.latLng(Number(item.x), Number(item.y));
+        if (!bounds.contains(latlng)) continue;
+
+        const popupHtml = buildSiaPointPopup(item);
+        if (item.k === 'dpn:VRP') {
+            const symbolText = getSiaVrpSymbolText(item);
+            const size = getSiaVrpVisualSize(symbolText);
+            const vrpVisual = getSiaVrpAirportVisual(item);
+            const marker = L.marker(latlng, {
+                pane: 'siaPointPane',
+                interactive: true,
+                bubblingMouseEvents: false,
+                keyboard: false,
+                icon: L.divIcon({
+                    className: 'sia-vrp-div-icon',
+                    html: `<span class="sia-vrp-symbol" style="--sia-vrp-bg:${vrpVisual.background};--sia-vrp-fg:${vrpVisual.foreground};width:${size}px;height:${size}px;font-size:${symbolText.length >= 5 ? 7 : symbolText.length === 4 ? 8 : symbolText.length === 3 ? 9 : 11}px">${escapeHtml(symbolText)}</span>`,
+                    iconSize: [size, size],
+                    iconAnchor: [size / 2, size / 2]
+                })
+            });
+            marker.bindPopup(popupHtml, { maxWidth: 340 });
+            marker.on('popupopen', () => marker.setPopupContent(buildSiaPointPopup(item)));
+            marker.addTo(siaLayerGroup);
+            addSiaTouchHitbox(latlng, popupHtml, () => buildSiaPointPopup(item));
+            rendered += 1;
+            continue;
+        }
+
+        const marker = L.circleMarker(latlng, {
+            ...getSiaPointMarkerStyle(item),
+            pane: 'siaPointPane',
+            renderer: siaPointRenderer,
+            interactive: true,
+            bubblingMouseEvents: false
+        });
+        marker.bindPopup(popupHtml, { maxWidth: 340 });
+
+        const label = String(item.d || item.c || '').trim();
+        if (zoom >= 8 && label && item.k !== 'dpn:ADHP') {
+            marker.bindTooltip(escapeHtml(label), {
+                permanent: true,
+                direction: 'right',
+                offset: [5, 0],
+                className: 'sia-point-label'
+            });
+        }
+        marker.addTo(siaLayerGroup);
+        addSiaTouchHitbox(latlng, popupHtml);
+        rendered += 1;
+    }
+    return rendered;
+}
+
+/*
+ * v17.53 — P3 : rafraîchissement SIA allégé.
+ * Index par cases (0,25°) des zones, terrains et points SIA, construit une
+ * seule fois par jeu de données chargé. Le rafraîchissement ne lit plus que
+ * les objets des cases couvertes par la zone chargée ; les mêmes filtres et
+ * les mêmes tests de limites qu'avant sont appliqués ensuite, dans l'ordre
+ * d'origine des données : le résultat affiché est strictement le même.
+ * Objets sans limites lisibles ou très étendus : toujours relus (liste à part).
+ */
+const SIA_GRID_INDEX_CELL_DEG = 0.25;
+const SIA_GRID_INDEX_MAX_CELLS_PER_ITEM = 256;
+const SIA_REFRESH_MAP_MOTION_REASONS = new Set(['gps-follow', 'moveend', 'zoomend', 'move-preload']);
+/* Construction : pas de pause d'une image systématique ; une seule pause quand
+ * un morceau de travail dépasse 50 ms (vues larges, 5 NM), jamais sinon. */
+const SIA_REFRESH_SLICE_MS = 50;
+let siaGridIndexCache = null;
+let siaRenderedTerrainItems = [];
+let siaRenderedPointItems = [];
+
+function getSiaGridCellRow(lat) {
+    return Math.floor((Number(lat) + 90) / SIA_GRID_INDEX_CELL_DEG);
+}
+
+function getSiaGridCellCol(lon) {
+    return Math.floor((Number(lon) + 180) / SIA_GRID_INDEX_CELL_DEG);
+}
+
+function buildSiaGridIndexPart(items, getBox) {
+    const cells = new Map();
+    const always = [];
+    const list = Array.isArray(items) ? items : [];
+    for (let index = 0; index < list.length; index += 1) {
+        const box = getBox(list[index]);
+        if (!box) {
+            always.push(index);
+            continue;
+        }
+        const row0 = getSiaGridCellRow(box[1]);
+        const row1 = getSiaGridCellRow(box[3]);
+        const col0 = getSiaGridCellCol(box[0]);
+        const col1 = getSiaGridCellCol(box[2]);
+        if ((row1 - row0 + 1) * (col1 - col0 + 1) > SIA_GRID_INDEX_MAX_CELLS_PER_ITEM) {
+            always.push(index);
+            continue;
+        }
+        for (let row = row0; row <= row1; row += 1) {
+            for (let col = col0; col <= col1; col += 1) {
+                const key = row * 4096 + col;
+                let bucket = cells.get(key);
+                if (!bucket) {
+                    bucket = [];
+                    cells.set(key, bucket);
+                }
+                bucket.push(index);
+            }
+        }
+    }
+    return { items: list, cells, always, marks: new Uint8Array(list.length) };
+}
+
+function getSiaAirspaceGridBox(item) {
+    const b = item?.b;
+    if (!Array.isArray(b) || b.length !== 4) return null;
+    const box = b.map(Number);
+    if (!box.every(Number.isFinite)) return null;
+    if (box[0] > box[2] || box[1] > box[3]) return null;
+    if (box[0] < -180 || box[2] > 180 || box[1] < -90 || box[3] > 90) return null;
+    return box;
+}
+
+function getSiaPointGridBox(item) {
+    const lat = Number(item?.x);
+    const lon = Number(item?.y);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return [lon, lat, lon, lat];
+}
+
+function getSiaGridIndex(dataset) {
+    const cache = siaGridIndexCache;
+    if (
+        cache
+        && cache.dataset === dataset
+        && cache.airspaces.items === (Array.isArray(dataset?.airspaces) ? dataset.airspaces : cache.airspaces.items)
+        && cache.terrain.items === (Array.isArray(dataset?.terrain) ? dataset.terrain : cache.terrain.items)
+        && cache.points.items === (Array.isArray(dataset?.points) ? dataset.points : cache.points.items)
+    ) {
+        return cache;
+    }
+    const startedAt = NPF_STARTUP_DIAGNOSTIC.now();
+    siaGridIndexCache = {
+        dataset,
+        airspaces: buildSiaGridIndexPart(dataset?.airspaces, getSiaAirspaceGridBox),
+        terrain: buildSiaGridIndexPart(dataset?.terrain, getSiaPointGridBox),
+        points: buildSiaGridIndexPart(dataset?.points, getSiaPointGridBox),
+        buildMs: 0
+    };
+    siaGridIndexCache.buildMs = NPF_STARTUP_DIAGNOSTIC.now() - startedAt;
+    try {
+        window.__npfSiaGridIndexStats = {
+            buildMs: siaGridIndexCache.buildMs,
+            airspaces: siaGridIndexCache.airspaces.items.length,
+            airspacesAlways: siaGridIndexCache.airspaces.always.length,
+            terrain: siaGridIndexCache.terrain.items.length,
+            points: siaGridIndexCache.points.items.length
+        };
+    } catch (_) {}
+    return siaGridIndexCache;
+}
+
+/* Indices des objets à relire pour ces limites, dans l'ordre d'origine. */
+function querySiaGridIndex(part, bounds) {
+    const total = part.items.length;
+    const all = () => {
+        const list = new Array(total);
+        for (let index = 0; index < total; index += 1) list[index] = index;
+        return list;
+    };
+    if (!bounds) return all();
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    /* Vue hors du cas simple (antiméridien, carte enroulée) : relecture complète. */
+    if (!(west <= east) || west < -180 || east > 180 || !Number.isFinite(south) || !Number.isFinite(north)) {
+        return all();
+    }
+    const row0 = Math.max(0, getSiaGridCellRow(Math.max(-90, south)));
+    const row1 = getSiaGridCellRow(Math.min(90, north));
+    const col0 = Math.max(0, getSiaGridCellCol(west));
+    const col1 = getSiaGridCellCol(east);
+    const marks = part.marks;
+    const result = [];
+    const take = index => {
+        if (marks[index]) return;
+        marks[index] = 1;
+        result.push(index);
+    };
+    part.always.forEach(take);
+    for (let row = row0; row <= row1; row += 1) {
+        for (let col = col0; col <= col1; col += 1) {
+            const bucket = part.cells.get(row * 4096 + col);
+            if (bucket) bucket.forEach(take);
+        }
+    }
+    result.forEach(index => { marks[index] = 0; });
+    result.sort((a, b) => a - b);
+    return result;
+}
+
+function isSameSiaItemList(previous, next, getPrevious, getNext = getPrevious) {
+    if (!Array.isArray(previous) || !Array.isArray(next) || previous.length !== next.length) return false;
+    for (let index = 0; index < next.length; index += 1) {
+        if (getPrevious(previous[index]) !== getNext(next[index])) return false;
+    }
+    return true;
+}
+
+async function refreshSiaLayers(reason = 'manual') {
+    if (!map) return;
+    ensureSiaMapPanes();
+
+    const npfDiagRefreshStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+    let npfDiagDatasetMs = 0;
+    let npfDiagScanMs = 0;
+    let npfDiagGeoJsonMs = 0;
+    let npfDiagTouchDecorMs = 0;
+    let npfDiagPointsMs = 0;
+    let npfDiagCommitMs = 0;
+    let npfDiagVisibleZones = 0;
+    let npfDiagRenderedObjects = 0;
+    let npfDiagTerrainCount = 0;
+    let npfDiagVrpCount = 0;
+    let npfDiagOtherPointCount = 0;
+
+    const refreshGeneration = getSiaRefreshGeneration();
+    let previousSiaLayerGroupForSwap = null;
+    let replacementSiaLayerGroupForSwap = null;
+    let replacementSiaLayerGroupCommitted = false;
+
+    if (siaRefreshInProgress) {
+        siaRefreshPendingReason = reason;
+        return;
+    }
+
+    siaRefreshInProgress = true;
+    siaRefreshCurrentReason = String(reason || 'manual');
+    try {
+        if (!hasAnyEnabledSiaFilter()) {
+            clearSiaRenderedLayers();
+            return;
+        }
+
+        const currentBounds = map.getBounds();
+        const zoom = map.getZoom();
+        const signature = getSiaRenderSignature();
+
+        if (
+            reason === 'gps-follow'
+            && siaRenderedCoverageBounds
+            && siaRenderedZoom === zoom
+            && siaRenderedSignature === signature
+            && siaBoundsFullyContains(siaRenderedCoverageBounds, currentBounds)
+        ) {
+            cancelObsoleteSiaMapMotionWork('gps-follow-contained-execution');
+            return;
+        }
+        const showSiaDesignatedPointsNow = shouldDisplaySiaDesignatedPoints();
+        const pointLabelsEnabledNow = zoom >= 8;
+
+        /*
+         * v16.37 — retour vers une vue rapprochée : ne plus réutiliser la
+         * couverture très large d'un zoom 7/8/9 lorsque les points SIA
+         * désignés doivent réapparaître. Le DIAG v16.34-v16.36 montre que
+         * l'ajout de plusieurs centaines de points sur l'ancien grand tampon
+         * (jusqu'à ~500 points) coûte davantage qu'une reconstruction normale
+         * centrée sur le nouveau viewport. Dans ce cas, on laisse donc le
+         * chemin de rendu complet ci-dessous reconstruire un tampon adapté au
+         * zoom courant. Les autres réutilisations de zoom restent conservées.
+         */
+
+        /*
+         * v15.80 — zoom dans une couverture déjà chargée : conserver volumes,
+         * points et hitboxes. Seules les bandes intérieures et étiquettes de
+         * zones, dépendantes des pixels écran, sont recalculées.
+         */
+        if (
+            reason === 'zoomend'
+            && siaRenderedCoverageBounds
+            && siaRenderedSignature === signature
+            && siaBoundsFullyContains(siaRenderedCoverageBounds, currentBounds)
+            && siaRenderedShowDesignatedPoints === showSiaDesignatedPointsNow
+            && siaRenderedPointLabelsEnabled === pointLabelsEnabledNow
+            && Array.isArray(siaRenderedAirspaceFeatures)
+        ) {
+            /* v16.66 — ne plus calculer bandes/libellés dans la transaction
+             * zoomend. Le zoom rend la main immédiatement ; la décoration est
+             * recalculée après stabilisation de la vue. */
+            siaRenderedZoom = zoom;
+            scheduleSiaInnerBandsSync('zoomend-contenu');
+            scheduleSiaMoveDecorationRefresh('zoomend-idle-v16.66');
+            npfDiagSiaInteraction(
+                'SIA RAFRAÎCHISSEMENT',
+                `raison=${reason} · décorations différées · zones=${siaRenderedAirspaceFeatures.length} · zoom=${zoom}`,
+                { totalMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagRefreshStartedAt) }
+            );
+            return;
+        }
+
+        // v16.70 — pan contenu : zéro reconstruction, y compris décorations.
+        // Les calques Leaflet existants suivent déjà la carte.
+        if (
+            reason === 'moveend'
+            && siaRenderedCoverageBounds
+            && siaRenderedZoom === zoom
+            && siaRenderedSignature === signature
+            && siaBoundsFullyContains(siaRenderedCoverageBounds, currentBounds)
+        ) {
+            cancelObsoleteSiaMapMotionWork('moveend-refresh-contained-v16.70-zero-work');
+            npfDiagSiaInteraction(
+                'SIA RAFRAÎCHISSEMENT',
+                `raison=${reason} · couverture valide · zéro recalcul total · zones=${Array.isArray(siaRenderedAirspaceFeatures) ? siaRenderedAirspaceFeatures.length : 0} · zoom=${zoom}`,
+                { totalMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagRefreshStartedAt) }
+            );
+            return;
+        }
+
+        /* v17.53 — P3 : aucune reconstruction pendant qu'un doigt est posé sur
+         * la carte ; une seule reprise à la fin du geste (reprise étalée v17.50). */
+        if (
+            SIA_REFRESH_MAP_MOTION_REASONS.has(String(reason || ''))
+            && typeof isNpfMapFingerDown === 'function'
+            && isNpfMapFingerDown()
+        ) {
+            const resumeSiaRefresh = reason === 'gps-follow'
+                ? () => scheduleSiaCoverageRefresh('gps-follow')
+                : () => scheduleSiaLayerRefresh(reason);
+            if (deferNpfWorkDuringMapGesture('sia', resumeSiaRefresh)) return;
+        }
+
+        clearTimeout(siaMoveDecorationRefreshTimer);
+        siaMoveDecorationRefreshTimer = null;
+
+        const npfDiagDatasetStart = NPF_STARTUP_DIAGNOSTIC.now();
+        const dataset = await ensureSiaDatasetForMapRefresh();
+        npfDiagDatasetMs = NPF_STARTUP_DIAGNOSTIC.now() - npfDiagDatasetStart;
+        throwIfSiaRefreshObsolete(refreshGeneration);
+        // v15.83 — inutile de scanner les familles TMA lorsque les volumes sont masqués.
+        const siaTmaOperationalFamilies = siaMapAirspacesVisible
+            ? buildSiaTmaOperationalFamilySet(dataset)
+            : null;
+
+        /*
+         * v15.82 — le double tampon n'est utile que lorsque les volumes SIA sont
+         * visibles. Zones masquées : libérer immédiatement l'ancien groupe évite
+         * de conserver deux jeux de marqueurs/points pendant la reconstruction.
+         */
+        const siaCombinedHeavyMapLoad = siaMapAirspacesVisible && showRoadOverlayLayer && showHighVoltageLinesLayer;
+        /* v16.57 — sous charge combinée, jamais deux jeux SIA simultanés,
+         * quel que soit le zoom : stabilité mémoire prioritaire sur iPad. */
+        const preservePreviousSiaDuringRebuild = siaMapAirspacesVisible
+            && !siaCombinedHeavyMapLoad;
+
+        // Charger légèrement au-delà du viewport évite les reconstructions à
+        // chaque mouvement du suivi GPS tout en bornant la mémoire Safari/iPad.
+        const renderPadRatio = siaMapAirspacesVisible
+            ? (siaCombinedHeavyMapLoad
+                ? SIA_COMBINED_HEAVY_RENDER_PAD_RATIO
+                : SIA_RENDER_BOUNDS_PAD_RATIO)
+            : SIA_POINT_ONLY_RENDER_BOUNDS_PAD_RATIO;
+        const renderBounds = currentBounds.pad(renderPadRatio);
+        const pointBounds = renderBounds.pad(0.03);
+        let rendered = 0;
+
+        /*
+         * v17.53 — P3 : sélection d'abord (index par cases, sans pause d'une
+         * image), construction ensuite. Mêmes filtres et même ordre qu'avant.
+         */
+        const siaGridIndex = getSiaGridIndex(dataset);
+        let npfDiagIndexRead = 0;
+        const visibleAirspaceFeatures = [];
+        const npfDiagScanStart = NPF_STARTUP_DIAGNOSTIC.now();
+
+        if (siaMapAirspacesVisible) {
+            const airspaceCandidates = querySiaGridIndex(siaGridIndex.airspaces, renderBounds);
+            npfDiagIndexRead += airspaceCandidates.length;
+            for (const candidateIndex of airspaceCandidates) {
+                const item = siaGridIndex.airspaces.items[candidateIndex];
+                if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
+                if (shouldHideSiaAirspaceAboveFl115(item)) continue;
+                if (isSiaTechnicalTmaUnionParent(item)) continue;
+                if (isSiaTechnicalSivParent(item, dataset)) continue;
+                if (isSiaGenericTmaWithoutAltitude(item, siaTmaOperationalFamilies)) continue;
+                if (!item.g) continue;
+                if (!siaBoundsIntersects(item.b, renderBounds)) continue;
+
+                const geometry = getSiaCachedGeometry(item);
+                if (!geometry) continue;
+
+                visibleAirspaceFeatures.push({
+                    type: 'Feature',
+                    properties: { siaItem: item },
+                    geometry
+                });
+            }
+        }
+        npfDiagScanMs = NPF_STARTUP_DIAGNOSTIC.now() - npfDiagScanStart;
+        npfDiagVisibleZones = visibleAirspaceFeatures.length;
+
+        const showSiaDesignatedPoints = showSiaDesignatedPointsNow;
+        const npfDiagPointsStart = NPF_STARTUP_DIAGNOSTIC.now();
+
+        const visibleTerrainItems = [];
+        const terrainCandidates = querySiaGridIndex(siaGridIndex.terrain, pointBounds);
+        npfDiagIndexRead += terrainCandidates.length;
+        for (const candidateIndex of terrainCandidates) {
+            const item = siaGridIndex.terrain.items[candidateIndex];
+            if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
+            const latlng = L.latLng(Number(item.x), Number(item.y));
+            if (!pointBounds.contains(latlng)) continue;
+            visibleTerrainItems.push({ item, latlng });
+        }
+
+        const visiblePointItems = [];
+        if (showSiaDesignatedPoints) {
+            const pointCandidates = querySiaGridIndex(siaGridIndex.points, pointBounds);
+            npfDiagIndexRead += pointCandidates.length;
+            for (const candidateIndex of pointCandidates) {
+                const item = siaGridIndex.points.items[candidateIndex];
+                if (!isSiaFilterEnabled(getSiaEffectiveFilterKey(item))) continue;
+                if (item.k === 'dpn:VRP' && !siaMapVrpVisible) continue;
+                const latlng = L.latLng(Number(item.x), Number(item.y));
+                if (!pointBounds.contains(latlng)) continue;
+                visiblePointItems.push({ item, latlng });
+            }
+        }
+        const npfDiagSelectPointsMs = NPF_STARTUP_DIAGNOSTIC.now() - npfDiagPointsStart;
+
+        /*
+         * v17.53 — P3 : mêmes objets que le rendu en place (même échelle, mêmes
+         * filtres) -> aucune reconstruction. Seule la zone chargée avance ;
+         * bordures et libellés suivent comme après une reconstruction.
+         */
+        if (
+            SIA_REFRESH_MAP_MOTION_REASONS.has(String(reason || ''))
+            && siaRenderedCoverageBounds
+            && siaLayerGroup
+            && map.hasLayer(siaLayerGroup)
+            && siaRenderedZoom === zoom
+            && siaRenderedSignature === signature
+            && siaRenderedShowDesignatedPoints === showSiaDesignatedPointsNow
+            && siaRenderedPointLabelsEnabled === pointLabelsEnabledNow
+            && isSameSiaItemList(siaRenderedAirspaceFeatures, visibleAirspaceFeatures, feature => feature?.properties?.siaItem)
+            && isSameSiaItemList(siaRenderedTerrainItems, visibleTerrainItems, item => item, entry => entry.item)
+            && isSameSiaItemList(siaRenderedPointItems, visiblePointItems, item => item, entry => entry.item)
+        ) {
+            siaRenderedCoverageBounds = renderBounds;
+            scheduleSiaInnerBandsSync(`identique-${reason}`);
+            if (siaMapAirspacesVisible && siaRenderedAirspaceFeatures.length) {
+                scheduleSiaMoveDecorationRefresh(`sia-${reason}-idle-v16.66`);
+            }
+            npfDiagSiaInteraction(
+                'SIA RAFRAÎCHISSEMENT',
+                `raison=${reason} · reconstruction évitée (identique) · zones=${npfDiagVisibleZones} · objets=${npfDiagVisibleZones + visibleTerrainItems.length + visiblePointItems.length} · lus index=${npfDiagIndexRead} · zoom=${zoom} · carteZones=${siaMapAirspacesVisible ? 'ON' : 'OFF'}`,
+                {
+                    totalMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagRefreshStartedAt),
+                    datasetMs: Math.round(npfDiagDatasetMs),
+                    scanMs: Math.round(npfDiagScanMs),
+                    pointsMs: Math.round(npfDiagSelectPointsMs),
+                    indexRead: npfDiagIndexRead,
+                    identicalAvoided: 1
+                }
+            );
+            scheduleSiaProfileRefresh(`sia-${reason}`);
+            return;
+        }
+
+        let siaRefreshSliceStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+        const yieldSiaRefreshIfLong = async () => {
+            if (NPF_STARTUP_DIAGNOSTIC.now() - siaRefreshSliceStartedAt < SIA_REFRESH_SLICE_MS) return;
+            await yieldSiaRefreshToMap(refreshGeneration);
+            siaRefreshSliceStartedAt = NPF_STARTUP_DIAGNOSTIC.now();
+        };
+
+        previousSiaLayerGroupForSwap = siaLayerGroup;
+        replacementSiaLayerGroupForSwap = L.layerGroup();
+        siaLayerGroup = replacementSiaLayerGroupForSwap;
+
+        if (
+            !preservePreviousSiaDuringRebuild
+            && previousSiaLayerGroupForSwap
+        ) {
+            try {
+                if (map.hasLayer(previousSiaLayerGroupForSwap)) {
+                    map.removeLayer(previousSiaLayerGroupForSwap);
+                }
+                previousSiaLayerGroupForSwap.clearLayers();
+            } catch (_) {}
+            previousSiaLayerGroupForSwap = null;
+            /* v16.57 — l'ancien groupe n'existe plus : sa couverture ne doit
+             * jamais être réutilisée si le nouveau rendu est interrompu par un zoom. */
+            siaRenderedCoverageBounds = null;
+            siaRenderedZoom = null;
+            siaRenderedSignature = '';
+            siaRenderedAirspaceFeatures = [];
+            try { scheduleSiaMapExtras('vide'); } catch (_) {}
+            siaRenderedShowDesignatedPoints = null;
+            siaRenderedPointLabelsEnabled = null;
+        }
+
+        siaSelectedCtrTouchLayer = null;
+        siaAirspaceTouchEntries = [];
+        siaZoomDependentLayers = [];
+
+        if (visibleAirspaceFeatures.length) {
+            const npfDiagGeoStart = NPF_STARTUP_DIAGNOSTIC.now();
+            siaAirspaceVeilLayers = [];
+            siaAirspaceVeilAppliedKey = getSiaAirspaceVeilOpacity('P') + '|' + getSiaAirspaceVeilOpacity('D');
+            siaAirspaceOutlineLayers = [];
+            siaAirspaceOutlineAppliedVisible = isSiaAirspaceOutlineVisible();
+            const airspaceLayer = L.geoJSON(
+                { type: 'FeatureCollection', features: visibleAirspaceFeatures },
+                {
+                    pane: 'siaAirspacePane',
+                    renderer: siaAirspaceRenderer,
+                    style: feature => {
+                        const zoneStyle = getSiaAirspaceStyle(feature.properties.siaItem);
+                        return siaAirspaceOutlineAppliedVisible ? zoneStyle : { ...zoneStyle, opacity: 0 };
+                    },
+                    pointToLayer: (feature, latlng) => {
+                        const itemStyle = getSiaAirspaceStyle(feature.properties.siaItem);
+                        return L.circleMarker(latlng, {
+                            pane: 'siaAirspacePane',
+                            renderer: siaAirspaceRenderer,
+                            radius: 5,
+                            color: itemStyle.color,
+                            weight: 2,
+                            fillColor: itemStyle.color,
+                            fillOpacity: 0.85
+                        });
+                    },
+                    onEachFeature: (_feature, layer) => {
+                        try { layer.options.interactive = false; } catch (_) {}
+                        try {
+                            const veilType = String(_feature?.properties?.siaItem?.t || '');
+                            if (veilType === 'P' || veilType === 'D') siaAirspaceVeilLayers.push(layer);
+                        } catch (_) {}
+                        try {
+                            if (!(layer instanceof L.CircleMarker)) {
+                                layer.options.npfOutlineOpacity = getSiaAirspaceStyle(_feature?.properties?.siaItem).opacity;
+                                siaAirspaceOutlineLayers.push(layer);
+                            }
+                        } catch (_) {}
+                    }
+                }
+            );
+            airspaceLayer.addTo(siaLayerGroup);
+            npfDiagGeoJsonMs = NPF_STARTUP_DIAGNOSTIC.now() - npfDiagGeoStart;
+            await yieldSiaRefreshIfLong();
+
+            const npfDiagTouchStart = NPF_STARTUP_DIAGNOSTIC.now();
+            /*
+             * v17.53 — P3 : surfaces tactiles sans pause systématique (une seule
+             * pause si le travail dépasse 50 ms). Depuis v15.75, une surface est
+             * une simple entrée géométrique (seuls les D-OTHER ponctuels créent
+             * une hitbox) : le lot entier est court.
+             */
+            for (let index = 0; index < visibleAirspaceFeatures.length; index += 1) {
+                throwIfSiaRefreshObsolete(refreshGeneration);
+                addSiaCtrTouchSurface(visibleAirspaceFeatures[index]);
+                await yieldSiaRefreshIfLong();
+            }
+
+            /* v16.66 — ne pas bloquer le rendu principal avec les bandes
+             * intérieures et libellés. Ici on termine uniquement les surfaces
+             * tactiles ; les décorations sont programmées après le commit. */
+            npfDiagTouchDecorMs = NPF_STARTUP_DIAGNOSTIC.now() - npfDiagTouchStart;
+            rendered += visibleAirspaceFeatures.length;
+        }
+
+        const npfDiagBuildPointsStart = NPF_STARTUP_DIAGNOSTIC.now();
+
+        for (const { item, latlng } of visibleTerrainItems) {
+            await yieldSiaRefreshIfLong();
+            const terrainPopupHtml = buildSiaTerrainPopup(item);
+            const marker = L.circleMarker(latlng, {
+                ...getSiaTerrainMarkerStyle(item),
+                pane: 'siaPointPane',
+                renderer: siaPointRenderer,
+                interactive: true,
+                bubblingMouseEvents: false
+            });
+            marker.bindPopup(terrainPopupHtml, { maxWidth: 320 });
+            if (zoom >= 8 && item.c) {
+                marker.bindTooltip(escapeHtml(item.c), {
+                    permanent: true,
+                    direction: 'right',
+                    offset: [5, 0],
+                    className: 'sia-point-label sia-terrain-label'
+                });
+            }
+            marker.addTo(siaLayerGroup);
+            addSiaTouchHitbox(latlng, terrainPopupHtml);
+            npfDiagTerrainCount += 1;
+            rendered += 1;
+        }
+
+        for (const { item, latlng } of visiblePointItems) {
+            await yieldSiaRefreshIfLong();
+            const popupHtml = buildSiaPointPopup(item);
+
+            if (item.k === 'dpn:VRP') {
+                const symbolText = getSiaVrpSymbolText(item);
+                const size = getSiaVrpVisualSize(symbolText);
+                const vrpVisual = getSiaVrpAirportVisual(item);
+                const marker = L.marker(latlng, {
+                    pane: 'siaPointPane',
+                    interactive: true,
+                    bubblingMouseEvents: false,
+                    keyboard: false,
+                    icon: L.divIcon({
+                        className: 'sia-vrp-div-icon',
+                        html: `<span class="sia-vrp-symbol" style="--sia-vrp-bg:${vrpVisual.background};--sia-vrp-fg:${vrpVisual.foreground};width:${size}px;height:${size}px;font-size:${symbolText.length >= 5 ? 7 : symbolText.length === 4 ? 8 : symbolText.length === 3 ? 9 : 11}px">${escapeHtml(symbolText)}</span>`,
+                        iconSize: [size, size],
+                        iconAnchor: [size / 2, size / 2]
+                    })
+                });
+                marker.bindPopup(popupHtml, { maxWidth: 340 });
+                marker.on('popupopen', () => marker.setPopupContent(buildSiaPointPopup(item)));
+                marker.addTo(siaLayerGroup);
+                addSiaTouchHitbox(latlng, popupHtml, () => buildSiaPointPopup(item));
+                npfDiagVrpCount += 1;
+                rendered += 1;
+                continue;
+            }
+
+            const marker = L.circleMarker(latlng, {
+                ...getSiaPointMarkerStyle(item),
+                pane: 'siaPointPane',
+                renderer: siaPointRenderer,
+                interactive: true,
+                bubblingMouseEvents: false
+            });
+            marker.bindPopup(popupHtml, { maxWidth: 340 });
+
+            const label = String(item.d || item.c || '').trim();
+            if (zoom >= 8 && label && item.k !== 'dpn:ADHP') {
+                marker.bindTooltip(escapeHtml(label), {
+                    permanent: true,
+                    direction: 'right',
+                    offset: [5, 0],
+                    className: 'sia-point-label'
+                });
+            }
+            marker.addTo(siaLayerGroup);
+            addSiaTouchHitbox(latlng, popupHtml);
+            npfDiagOtherPointCount += 1;
+            rendered += 1;
+        }
+        npfDiagPointsMs = npfDiagSelectPointsMs + (NPF_STARTUP_DIAGNOSTIC.now() - npfDiagBuildPointsStart);
+        await yieldSiaRefreshIfLong();
+
+        throwIfSiaRefreshObsolete(refreshGeneration);
+
+        /* Le nouveau groupe devient visible d'un bloc, puis l'ancien est retiré. */
+        const npfDiagCommitStart = NPF_STARTUP_DIAGNOSTIC.now();
+        replacementSiaLayerGroupForSwap.addTo(map);
+        if (
+            previousSiaLayerGroupForSwap
+            && previousSiaLayerGroupForSwap !== replacementSiaLayerGroupForSwap
+            && map.hasLayer(previousSiaLayerGroupForSwap)
+        ) {
+            map.removeLayer(previousSiaLayerGroupForSwap);
+        }
+        replacementSiaLayerGroupCommitted = true;
+        npfDiagCommitMs = NPF_STARTUP_DIAGNOSTIC.now() - npfDiagCommitStart;
+        npfDiagRenderedObjects = rendered;
+
+        // Couverture et signature ne sont validées qu'après un rendu complet.
+        siaRenderedCoverageBounds = renderBounds;
+        siaRenderedZoom = zoom;
+        siaRenderedSignature = signature;
+        siaRenderedAirspaceFeatures = visibleAirspaceFeatures;
+        /* v17.74 — icônes AER / VOL / PJE et points intérieurs des parcs et réserves (PRN). */
+        try { scheduleSiaMapExtras('rendu'); } catch (_) {}
+        siaRenderedShowDesignatedPoints = showSiaDesignatedPointsNow;
+        siaRenderedTerrainItems = visibleTerrainItems.map(entry => entry.item);
+        siaRenderedPointItems = visiblePointItems.map(entry => entry.item);
+        siaRenderedPointLabelsEnabled = pointLabelsEnabledNow;
+        siaRenderedDiagnosticCounts = {
+            zones: visibleAirspaceFeatures.length,
+            terrains: npfDiagTerrainCount,
+            vrp: npfDiagVrpCount,
+            otherPoints: npfDiagOtherPointCount,
+            decorations: Number(siaZoomDependentLayers?.length || 0),
+            touchEntries: Number(siaAirspaceTouchEntries?.length || 0)
+        };
+
+        npfDiagSiaInteraction(
+            'SIA COUCHES',
+            `zones=${siaRenderedDiagnosticCounts.zones} · terrains=${siaRenderedDiagnosticCounts.terrains} · vrp=${siaRenderedDiagnosticCounts.vrp} · autres=${siaRenderedDiagnosticCounts.otherPoints} · décorations=${siaRenderedDiagnosticCounts.decorations} · tactiles=${siaRenderedDiagnosticCounts.touchEntries}`,
+            {
+                zones: siaRenderedDiagnosticCounts.zones,
+                terrains: siaRenderedDiagnosticCounts.terrains,
+                vrp: siaRenderedDiagnosticCounts.vrp,
+                otherPoints: siaRenderedDiagnosticCounts.otherPoints,
+                decorations: siaRenderedDiagnosticCounts.decorations,
+                touchEntries: siaRenderedDiagnosticCounts.touchEntries,
+                totalLayers: Number(siaLayerGroup?.getLayers?.().length || 0)
+            }
+        );
+
+        /* v17.50 — DIAG : nombre de VRP posés (ligne d'en-tête). */
+        setTimeout(() => { try { noteNpfDiagVrpCount(); } catch (_) {} }, 0);
+
+        /* v17.52 — bordures gardées reposées sur le nouveau calque + zones manquantes. */
+        scheduleSiaInnerBandsSync(`commit-${reason}`, { reorder: true });
+
+        /* v16.66 — contours/points sont maintenant engagés ; bandes
+         * intérieures et libellés suivent au repos, sans retarder ce commit. */
+        if (siaMapAirspacesVisible && visibleAirspaceFeatures.length) {
+            scheduleSiaMoveDecorationRefresh(`sia-${reason}-idle-v16.66`);
+        }
+
+        if (reason === 'startup-prefs') {
+            armSiaStartupPassiveMoveendGuard();
+        }
+
+        const footer = document.getElementById('sia-filter-footer-status');
+        if (footer) {
+            const scaleNote = showSiaDesignatedPoints
+                ? ''
+                : ' Points SIA masqués : ils apparaissent à partir de l’échelle 5 NM.';
+            const zonesNote = siaMapAirspacesVisible
+                ? ''
+                : ' Zones carte masquées.';
+            footer.textContent = `${rendered} objet${rendered > 1 ? 's' : ''} SIA affiché${rendered > 1 ? 's' : ''} dans la zone chargée.${zonesNote}${scaleNote}`;
+        }
+
+        npfDiagSiaInteraction(
+            'SIA RAFRAÎCHISSEMENT',
+            `raison=${reason} · zones=${npfDiagVisibleZones} · objets=${npfDiagRenderedObjects} · lus index=${npfDiagIndexRead} · zoom=${zoom} · carteZones=${siaMapAirspacesVisible ? 'ON' : 'OFF'}`,
+            {
+                totalMs: Math.round(NPF_STARTUP_DIAGNOSTIC.now() - npfDiagRefreshStartedAt),
+                datasetMs: Math.round(npfDiagDatasetMs),
+                scanMs: Math.round(npfDiagScanMs),
+                geoJsonMs: Math.round(npfDiagGeoJsonMs),
+                touchDecorMs: Math.round(npfDiagTouchDecorMs),
+                pointsMs: Math.round(npfDiagPointsMs),
+                commitMs: Math.round(npfDiagCommitMs),
+                indexRead: npfDiagIndexRead
+            }
+        );
+
+        scheduleSiaProfileRefresh(`sia-${reason}`);
+    } catch (error) {
+        /* En cas d'échec, conserver intégralement l'ancien rendu opérationnel. */
+        if (replacementSiaLayerGroupForSwap && !replacementSiaLayerGroupCommitted) {
+            try { replacementSiaLayerGroupForSwap.clearLayers(); } catch (_) {}
+            siaLayerGroup = previousSiaLayerGroupForSwap;
+        }
+        if (error?.name === SIA_REFRESH_ABORT_ERROR_NAME) {
+            return;
+        }
+        throw error;
+    } finally {
+        if (String(reason || '') === 'zoomend-after-routes-ht') {
+            siaHeavyZoomFinalRefreshPending = false;
+        }
+        siaRefreshInProgress = false;
+        siaRefreshCurrentReason = null;
+        const pending = siaRefreshPendingReason;
+        siaRefreshPendingReason = null;
+        if (pending) scheduleSiaLayerRefresh(pending);
+    }
+}
+
+/*
+ * v17.74 — icônes des zones D-OTHER aéromodélisme 🕹️, voltige ➰ et parachutage 🪂 (champ l de sia.js) : une
+ * icône au centre de chaque zone, à 5 NM d'échelle ou moins, dessinées sur UN SEUL canvas (pas d'élément HTML
+ * par zone), seulement pour les zones à l'écran ; des cibles tactiles invisibles (SVG, comme les VRP) sont
+ * créées pour les seules icônes à l'écran ; toucher une icône ouvre la fenêtre de la zone (même sélection
+ * qu'un point D-OTHER). Les autres catégories D-OTHER ne changent pas.
+ * Parcs nationaux et réserves naturelles (D-OTHER / PRN) : v17.74 à v17.80, rangée de points rouges à l'intérieur
+ * du contour ; v17.81 : SUPPRIMÉE (elle s'écartait du vrai contour sur iPad) — le contour exact est dessiné en
+ * points rouges par son propre style (getSiaAirspaceStyle).
+ */
+/*
+ * v17.77 — voltige 🛩️ (au lieu de ➰) ; aéromodélisme : radiocommande DESSINÉE par l'app (boîtier noir aux coins
+ * arrondis, deux manches blancs à point noir, antenne courte en haut), dessinée une fois puis réutilisée ;
+ * parachutage 🪂. Disque blanc = 85 % du diamètre d'un point VFR (24 px -> 20 px), dessin de 14 px.
+ * Icônes SOUS les points VFR et les terrains (panneau 550 < 555), cibles tactiles sous celles des VRP
+ * (panneau 650 < 660) : un point VFR qui chevauche une icône reste visible et répond au toucher.
+ * Parcs et réserves (v17.77 à v17.80) : rangée de points à 5 NM et moins ; supprimée en v17.81.
+ */
+const SIA_DOTHER_ICON_RADIO = 'radiocommande';
+/* v17.78 — voltige : ➰ RETOURNÉ de haut en bas (boucle vers le haut ; 🛩️ est un jet chez Apple). */
+const SIA_DOTHER_ICONS = Object.freeze({ AER: SIA_DOTHER_ICON_RADIO, VOL: '\u{27B0}', PJE: '\u{1FA82}' });
+const SIA_DOTHER_ICONS_FLIPPED = Object.freeze({ VOL: true });
+const siaDotherEmojiSprites = new Map();
+const SIA_DOTHER_ICON_MAX_SCALE_NM = 5;
+const SIA_DOTHER_ICON_DISC_PX = Math.round(0.85 * getSiaVrpVisualSize(''));
+const SIA_DOTHER_ICON_SIZE_PX = 14;
+let siaDotherIconTouchRenderer = null;
+let siaDotherRadioSprite = null;
+let siaDotherIconCanvas = null;
+let siaDotherIconTouchGroup = null;
+let siaMapExtrasTimer = null;
+let siaMapExtrasEventsInstalled = false;
+let siaDotherIconStats = { drawn: 0, lastMs: 0 };
+
+function ensureSiaIconPane() {
+    if (!map || !map.createPane) return null;
+    let pane = map.getPane('siaIconPane');
+    if (!pane) {
+        pane = map.createPane('siaIconPane');
+        pane.style.zIndex = '550';
+        pane.style.pointerEvents = 'none';
+    }
+    if (!map.getPane('siaIconTouchPane')) {
+        const touchPane = map.createPane('siaIconTouchPane');
+        touchPane.style.zIndex = '650';
+        touchPane.style.pointerEvents = 'auto';
+    }
+    if (!siaDotherIconTouchRenderer && L.svg) {
+        siaDotherIconTouchRenderer = L.svg({ padding: 0.35, pane: 'siaIconTouchPane' });
+    }
+    return pane;
+}
+
+/* Radiocommande dessinée une seule fois (par densité d'écran), puis réutilisée telle quelle. */
+function getSiaDotherRadioSprite(dpr) {
+    if (siaDotherRadioSprite && siaDotherRadioSprite.dpr === dpr) return siaDotherRadioSprite.canvas;
+    const B = SIA_DOTHER_ICON_SIZE_PX;
+    const k = Math.max(2, Math.ceil(dpr * 2));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(B * k);
+    canvas.height = Math.ceil(B * k);
+    const c = canvas.getContext('2d');
+    c.scale(k, k);
+    const dy = 0.07 * B; /* contenu de 0,07 B à 0,93 B : centré verticalement */
+    c.fillStyle = '#000000';
+    c.strokeStyle = '#000000';
+    /* antenne courte, sortant du haut du boîtier */
+    c.lineCap = 'round';
+    c.lineWidth = 0.11 * B;
+    c.beginPath();
+    c.moveTo(0.64 * B, 0.07 * B + dy);
+    c.lineTo(0.64 * B, 0.3 * B + dy);
+    c.stroke();
+    /* boîtier rectangulaire aux coins arrondis */
+    const x = 0.08 * B, y = 0.28 * B + dy, w = 0.84 * B, h = 0.58 * B, r = 0.14 * B;
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r);
+    c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    c.lineTo(x + r, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r);
+    c.quadraticCurveTo(x, y, x + r, y);
+    c.fill();
+    /* deux manches : cercle blanc et point noir au centre */
+    for (const cx of [0.3 * B, 0.7 * B]) {
+        const cy = 0.57 * B + dy;
+        c.fillStyle = '#ffffff';
+        c.beginPath();
+        c.arc(cx, cy, 0.155 * B, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#000000';
+        c.beginPath();
+        c.arc(cx, cy, 0.06 * B, 0, Math.PI * 2);
+        c.fill();
+    }
+    siaDotherRadioSprite = { dpr, canvas };
+    return canvas;
+}
+
+function getSiaDotherIconEntries() {
+    if (!map || !siaMapAirspacesVisible || isCurrentOfflineOaciMap()) return [];
+    const scaleNm = getCurrentNpfScaleNm();
+    if (!Number.isFinite(scaleNm) || scaleNm > SIA_DOTHER_ICON_MAX_SCALE_NM + 1e-6) return [];
+    const view = map.getBounds().pad(0.05);
+    const entries = [];
+    for (const feature of siaRenderedAirspaceFeatures || []) {
+        const item = feature?.properties?.siaItem;
+        if (!item || item.t !== 'D-OTHER' || !Array.isArray(item.b)) continue;
+        const icon = SIA_DOTHER_ICONS[String(item.l || '').toUpperCase()];
+        if (!icon) continue;
+        /* v17.76 — pas d'icône pour une zone à 2 NM ou moins d'un aérodrome (« ad », calculé par le
+         * convertisseur) : la zone reste sélectionnable par « Sélection Zone ». */
+        if (item.ad) continue;
+        const lat = (Number(item.b[1]) + Number(item.b[3])) / 2;
+        const lon = (Number(item.b[0]) + Number(item.b[2])) / 2;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !view.contains([lat, lon])) continue;
+        entries.push({ item, feature, icon, latlng: L.latLng(lat, lon) });
+    }
+    return entries;
+}
+
+/*
+ * v17.78 — chaque émoji devient une petite image préparée UNE fois (par émoji, densité d'écran et sens) : dessiné
+ * sur une image invisible, boîte des pixels réellement dessinés (lecture des pixels, fiable aussi sur iPad), puis
+ * recopié CENTRÉ (et retourné de haut en bas pour la voltige) dans une image carrée réutilisée à chaque dessin.
+ */
+function getSiaDotherEmojiSprite(icon, dpr, flipped) {
+    const key = `${icon}|${dpr}|${flipped ? 1 : 0}`;
+    if (siaDotherEmojiSprites.has(key)) return siaDotherEmojiSprites.get(key);
+    const B = SIA_DOTHER_ICON_SIZE_PX;
+    const k = Math.max(2, Math.ceil(dpr * 2));
+    const side = Math.ceil(B * k);
+    const sprite = document.createElement('canvas');
+    sprite.width = side;
+    sprite.height = side;
+    try {
+        const tmpSide = side * 3;
+        const tmp = document.createElement('canvas');
+        tmp.width = tmpSide;
+        tmp.height = tmpSide;
+        const t = tmp.getContext('2d', { willReadFrequently: true });
+        t.font = `${B * k}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+        t.textAlign = 'center';
+        t.textBaseline = 'middle';
+        t.fillStyle = '#000000';
+        t.fillText(icon, tmpSide / 2, tmpSide / 2);
+        const data = t.getImageData(0, 0, tmpSide, tmpSide).data;
+        let minX = tmpSide, maxX = -1, minY = tmpSide, maxY = -1;
+        for (let y = 0; y < tmpSide; y += 1) {
+            for (let x = 0; x < tmpSide; x += 1) {
+                if (data[(y * tmpSide + x) * 4 + 3] > 40) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (maxX >= 0) {
+            const w = maxX - minX + 1;
+            const h = maxY - minY + 1;
+            const f = Math.min(1, side / w, side / h);
+            const c = sprite.getContext('2d');
+            c.translate(side / 2, side / 2);
+            if (flipped) c.scale(1, -1);
+            c.drawImage(tmp, minX, minY, w, h, -w * f / 2, -h * f / 2, w * f, h * f);
+        }
+    } catch (_) {}
+    siaDotherEmojiSprites.set(key, sprite);
+    return sprite;
+}
+
+function hideSiaDotherIcons() {
+    if (siaDotherIconCanvas) siaDotherIconCanvas.style.display = 'none';
+    if (siaDotherIconTouchGroup) siaDotherIconTouchGroup.clearLayers();
+}
+
+function drawSiaDotherIcons() {
+    const startedAt = performance.now();
+    const pane = ensureSiaIconPane();
+    if (!pane) return;
+    const entries = getSiaDotherIconEntries();
+    if (!siaDotherIconCanvas) {
+        siaDotherIconCanvas = document.createElement('canvas');
+        siaDotherIconCanvas.className = 'sia-dother-icon-canvas';
+        siaDotherIconCanvas.style.position = 'absolute';
+        siaDotherIconCanvas.style.pointerEvents = 'none';
+        pane.appendChild(siaDotherIconCanvas);
+    }
+    if (!siaDotherIconTouchGroup) siaDotherIconTouchGroup = L.layerGroup();
+    if (!map.hasLayer(siaDotherIconTouchGroup)) siaDotherIconTouchGroup.addTo(map);
+    siaDotherIconTouchGroup.clearLayers();
+    const canvas = siaDotherIconCanvas;
+    if (!entries.length) {
+        canvas.style.display = 'none';
+        siaDotherIconStats = { drawn: 0, lastMs: Math.round(performance.now() - startedAt) };
+        return;
+    }
+    const size = map.getSize();
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const width = Math.round(size.x * dpr);
+    const height = Math.round(size.y * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = size.x + 'px';
+        canvas.style.height = size.y + 'px';
+    }
+    L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+    canvas.style.display = '';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${SIA_DOTHER_ICON_SIZE_PX}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const entry of entries) {
+        const p = map.latLngToContainerPoint(entry.latlng);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, SIA_DOTHER_ICON_DISC_PX / 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.stroke();
+        ctx.fillStyle = '#000000';
+        const B = SIA_DOTHER_ICON_SIZE_PX;
+        const sprite = entry.icon === SIA_DOTHER_ICON_RADIO
+            ? getSiaDotherRadioSprite(dpr)
+            : getSiaDotherEmojiSprite(entry.icon, dpr, !!SIA_DOTHER_ICONS_FLIPPED[String(entry.item.l || '').toUpperCase()]);
+        ctx.drawImage(sprite, p.x - B / 2, p.y - B / 2, B, B);
+        const target = L.circleMarker(entry.latlng, {
+            pane: 'siaIconTouchPane',
+            renderer: siaDotherIconTouchRenderer || undefined,
+            radius: SIA_DOTHER_ICON_DISC_PX / 2 + 3,
+            stroke: false,
+            fill: true,
+            fillColor: '#000000',
+            fillOpacity: 0.002,
+            interactive: true,
+            bubblingMouseEvents: false,
+            keyboard: false,
+            className: 'sia-dother-icon-touch'
+        });
+        target.on('click', event => {
+            try {
+                if (event?.originalEvent) {
+                    L.DomEvent.stopPropagation(event.originalEvent);
+                    L.DomEvent.preventDefault(event.originalEvent);
+                }
+            } catch (_) {}
+            if (isDrawingMode && event?.latlng) {
+                handleGaarMapClick(event, { fromSiaSurface: true }).catch(() => {});
+                return;
+            }
+            const touchEntry = (siaAirspaceTouchEntries || []).find(candidate => candidate?.item === entry.item);
+            selectSiaCtrTouchLayer(touchEntry?.layer || null, entry.item, entry.latlng, entry.feature.geometry, { directPoint: true });
+        });
+        target.addTo(siaDotherIconTouchGroup);
+    }
+    siaDotherIconStats = { drawn: entries.length, lastMs: Math.round(performance.now() - startedAt) };
+}
+
+function scheduleSiaMapExtras(reason = 'sync') {
+    if (!map) return;
+    if (!siaMapExtrasEventsInstalled) {
+        siaMapExtrasEventsInstalled = true;
+        map.on('zoomstart', hideSiaDotherIcons);
+        map.on('moveend resize', () => scheduleSiaMapExtras('carte'));
+    }
+    clearTimeout(siaMapExtrasTimer);
+    siaMapExtrasTimer = setTimeout(() => {
+        siaMapExtrasTimer = null;
+        if (typeof isNpfMapFingerDown === 'function' && isNpfMapFingerDown()) {
+            scheduleSiaMapExtras(reason);
+            return;
+        }
+        try { drawSiaDotherIcons(); } catch (error) { console.warn('Icônes D-OTHER :', error); }
+    }, 60);
+}
+
+/* v17.46 — DIAG : fin de l'évaluation de script.js (durées du démarrage). */
+try { npfStartupDiagMark('script_end', 'Script NPF-Q400 évalué'); } catch (_) {}
