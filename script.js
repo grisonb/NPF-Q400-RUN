@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.7';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.8';
 
 
 /*
@@ -39960,6 +39960,8 @@ function clearAirportOperationalLabelsForMapMotion() {
 /* RUN v1.5 — demande de Bastien : étiquette (nom + fréquence) de Pierrefonds placée à GAUCHE du terrain, au-dessus de l'océan.
  * Placement seulement (style.css .airport-operational-label-gauche) ; les autres terrains et tous les calculs inchangés. */
 const NPF_AIRPORT_LABEL_A_GAUCHE = new Set(['FMEP']);
+/* RUN v1.8 — échelle maximale (NM) des étiquettes des bases ULM, hélistations et sites de vol libre (demande de Bastien). */
+const NPF_PETITS_TERRAINS_ETIQUETTE_MAX_NM = 1;
 
 function refreshAirportOperationalLabels() {
     if (!map) return;
@@ -39973,9 +39975,14 @@ function refreshAirportOperationalLabels() {
 
     const bounds = map.getBounds().pad(0.05);
     airportOperationalLabelLayer.clearLayers();
+    /* RUN v1.8 — étiquettes des bases ULM, des hélistations et des sites de vol libre seulement à partir du cran 1 NM
+     * (1 NM et 0,5 NM) ; à 2 NM, seuls leurs symboles restent. Aérodromes (FMEP, FMEE…) : inchangés (2 NM et moins). */
+    const npfPetitsTerrainsEtiquetes = scaleNm <= NPF_PETITS_TERRAINS_ETIQUETTE_MAX_NM + 0.000001;
+    const npfCodesHelistations = new Set((typeof NPF_RUN_HELISTATIONS !== 'undefined' ? NPF_RUN_HELISTATIONS : []).map(h => h.oaci));
     getNpfDisplayedAirportRecordsForLabels().forEach(airport => {
         const latlng = L.latLng(airport.lat, airport.lon);
         if (!bounds.contains(latlng)) return;
+        if (!npfPetitsTerrainsEtiquetes && (airport.ulm || airport.volLibre || npfCodesHelistations.has(airport.oaci))) return;
         /* RUN v1.7 — base ULM : fréquence BASULM (A/A) et code BASULM affiché */
         const freq = getAirportOperationalFrequency(airport.oaci)
             || (airport.ulm && airport.frequence ? { type: 'A/A', value: airport.frequence } : null);
