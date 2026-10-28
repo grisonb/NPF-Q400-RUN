@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.9';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.10';
 
 
 /*
@@ -30439,7 +30439,7 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
         /* v17.86 — le plus proche (liste triée par distance) garde sa bordure verte même si un autre est choisi. */
         drawRoute([lat, lon], [ap.lat, ap.lon], { oaci: ap.oaci, isNearest: index === 0 });
     });
-    /* RUN v1.9 — cheminements vers les cirques dont la fin est à moins de 5 NM du feu (src/155) ; tracés de fond cachés. */
+    /* RUN v1.9 — itinéraires proposés pour le feu (src/155 ; règle v1.10) ; tracés de fond cachés. */
     if (typeof drawNpfCheminementsVersFeu === 'function') allPoints.push(...drawNpfCheminementsVersFeu(lat, lon, routesLayer));
     if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
 
@@ -30484,8 +30484,8 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
 function selectPelicanOaciFromRoute(oaci) {
     const normalizedOaci = String(oaci || '').trim().toUpperCase();
     if (!normalizedOaci) return;
-    /* RUN v1.9 — toucher la ligne droite : retour à elle (plus de cheminement choisi). */
-    if (typeof npfCheminementSelectionId !== 'undefined') npfCheminementSelectionId = null;
+    /* RUN v1.9 — toucher la ligne droite : elle devient le chemin choisi (v1.10 : la présélection ne la reprend pas). */
+    if (typeof selectNpfLigneDroite === 'function') selectNpfLigneDroite();
     selectedPelicanOACI = normalizedOaci;
     displayCommuneDetails(currentCommune, false);
 }
@@ -31083,15 +31083,19 @@ function refreshUI() {
 
 /* =========================================================================
    RUN v1.9 — CHEMINEMENTS VERS LES CIRQUES (données) — dessinés par Bastien (25/10/2026)
+   RUN v1.10 — 3 itinéraires de plus (Cilaos, Nord par l'ouest, Nord par l'est), cirque d'arrivée de chaque itinéraire
+   (« cirque » : mafate, cilaos, salazie, ou '' hors cirque) et contours des 3 cirques (28/10/2026)
    ========================================================================= */
 /* Tout part du point officiel de FMEP (pelicanAirports, ARP AIXM). Caps MAGNÉTIQUES et distances saisis par Bastien
  * (cap / dist) ; positions reconstruites DANS l'app avec computeNpfConstantMagneticCourse (même modèle que l'affichage
  * des branches de route WP : cap magnétique constant, déclinaison WMM2025 au point de départ de chaque branche) ;
  * l'app réaffiche les caps et distances saisis à 0,001° et 0,001 Nm près (tests/cdp_v19_reconstruction.js).
- * Une branche = [lat, lon, nom du point, cap magnétique saisi, distance saisie]. Total = somme des distances. */
+ * Une branche = [lat, lon, nom du point, cap magnétique saisi, distance saisie]. Total = somme des distances.
+ * Pour ajouter un itinéraire (par exemple vers Cilaos) : une entrée de plus, avec son « cirque » ; rien d'autre à changer. */
 const NPF_RUN_CHEMINEMENTS = Object.freeze([
     Object.freeze({
         id: 'mafate-galets',
+        cirque: 'mafate',
         nom: "Mafate par la Rivière des Galets",
         totalNm: 34.6,
         points: Object.freeze([
@@ -31107,6 +31111,7 @@ const NPF_RUN_CHEMINEMENTS = Object.freeze([
     }),
     Object.freeze({
         id: 'mafate-cilaos',
+        cirque: 'mafate',
         nom: "Mafate par Cilaos",
         totalNm: 15.7,
         points: Object.freeze([
@@ -31119,6 +31124,7 @@ const NPF_RUN_CHEMINEMENTS = Object.freeze([
     }),
     Object.freeze({
         id: 'salazie-cilaos-mafate',
+        cirque: 'salazie',
         nom: "Salazie par Cilaos et Mafate",
         totalNm: 19.4,
         points: Object.freeze([
@@ -31133,6 +31139,7 @@ const NPF_RUN_CHEMINEMENTS = Object.freeze([
     }),
     Object.freeze({
         id: 'salazie-cotier',
+        cirque: 'salazie',
         nom: "Salazie par le côtier",
         totalNm: 57.3,
         points: Object.freeze([
@@ -31149,31 +31156,123 @@ const NPF_RUN_CHEMINEMENTS = Object.freeze([
             [-21.016896, 55.561128, "WP11 Îlet Fleurs Jaunes", 258, 1.5],
             [-21.029692, 55.540245, "WP12 Salazie", 256.1, 1.4]
         ])
+    }),
+    /* RUN v1.10 — 3 itinéraires de Bastien (28/10/2026) ; un point à moins de 0,3 NM d'un point déjà enregistré EST ce
+     * point (fusion, positions reprises telles quelles) : liste des fusions dans rapports/non_regression_v110.txt. */
+    Object.freeze({
+        id: 'cilaos',
+        cirque: 'cilaos',
+        nom: "Cilaos",
+        totalNm: 8.5,
+        points: Object.freeze([
+            [-21.281001, 55.470641, "WP1 au-dessus de La Rivière", 68.2, 3.5],
+            [-21.200023, 55.449994, "WP2 entre Piton Cabris et Grand Piton", 6.4, 5]
+        ])
+    }),
+    Object.freeze({
+        id: 'nord-ouest',
+        cirque: '',
+        nom: "Nord par l'ouest",
+        totalNm: 38.8,
+        points: Object.freeze([
+            [-21.283734, 55.340042, "WP1 large L'Étang-Salé", 315.1, 5.3],
+            [-21.211237, 55.279961, "WP2 large Les Avirons", 342, 5.5],
+            [-21.080780, 55.221007, "WP3 large Saint-Gilles", 356.7, 8.5],
+            [-21.021135, 55.227574, "WP4 Boucan-Canot", 25.3, 3.6],
+            [-20.927823, 55.286361, "WP5 La Possession", 49.8, 6.5],
+            [-20.892557, 55.372989, "WP6 côte ouest de Saint-Denis", 85.7, 5.3],
+            [-20.921049, 55.439422, "WP7 au sud de Saint-Denis", 133.9, 4.1]
+        ])
+    }),
+    Object.freeze({
+        id: 'nord-est',
+        cirque: '',
+        nom: "Nord par l'est",
+        totalNm: 48.1,
+        points: Object.freeze([
+            [-21.382852, 55.572469, "WP1", 134.7, 9],
+            [-21.395545, 55.651800, "WP2 large Saint-Joseph", 119.4, 4.5],
+            [-21.354871, 55.812300, "WP3 Saint-Philippe", 94, 9.3],
+            [-21.172336, 55.843765, "WP4 Bois Blanc, Sainte-Rose", 28.9, 11.1],
+            [-21.063202, 55.736229, "WP5 Bras-Fusil", 336.8, 8.9],
+            [-20.985680, 55.690997, "WP6 Bras-Panon", 350.9, 5.3]
+        ])
     })
 ]);
+
+/* RUN v1.10 — contours des 3 cirques le long des crêtes des remparts (validés par Bastien le 28/10/2026). Calculés UNE
+ * FOIS sur le PC (carte/outils_relief/42_contours_cirques.py : bassin versant en amont de la gorge de sortie, relief IGN
+ * RGE ALTI de la carte RUN, sorties repérées sur OpenStreetMap ; simplifiés à 120 m) ; [lat, lon], polygone fermé. */
+const NPF_RUN_CIRQUES = Object.freeze({
+    mafate: Object.freeze({
+        nom: 'Mafate',
+        contour: Object.freeze([
+            [-21.11765, 55.42457], [-21.11669, 55.41993], [-21.10236, 55.40165], [-21.08186, 55.38963], [-21.06904, 55.38740], [-21.06280, 55.38242],
+            [-21.05030, 55.38088], [-21.04581, 55.37676], [-21.03957, 55.37830], [-21.03123, 55.38637], [-21.02370, 55.38912], [-21.00159, 55.36680],
+            [-20.99278, 55.36371], [-20.98668, 55.35891], [-20.98252, 55.36251], [-20.97875, 55.35933], [-20.98067, 55.36260], [-20.97651, 55.36689],
+            [-20.98035, 55.37461], [-20.98949, 55.38302], [-20.99061, 55.38903], [-20.98292, 55.40362], [-20.98292, 55.41959], [-20.98660, 55.42542],
+            [-20.98757, 55.43521], [-20.98965, 55.43607], [-20.99141, 55.44070], [-20.99061, 55.44911], [-20.99286, 55.45152], [-20.99253, 55.45392],
+            [-20.99662, 55.45761], [-20.99822, 55.45624], [-21.00864, 55.45744], [-21.01457, 55.46104], [-21.02066, 55.46001], [-21.02627, 55.46190],
+            [-21.03043, 55.45383], [-21.05735, 55.45435], [-21.06079, 55.45255], [-21.06664, 55.44388], [-21.08178, 55.45735], [-21.08274, 55.46319],
+            [-21.08554, 55.46448], [-21.09251, 55.45804], [-21.09355, 55.45504], [-21.09803, 55.45641], [-21.10068, 55.45461], [-21.10804, 55.43967],
+            [-21.11205, 55.43590], [-21.11349, 55.42903]
+        ])
+    }),
+    cilaos: Object.freeze({
+        nom: 'Cilaos',
+        contour: Object.freeze([
+            [-21.19658, 55.43899], [-21.19426, 55.43684], [-21.18673, 55.43718], [-21.18505, 55.43229], [-21.17905, 55.42963], [-21.16432, 55.41281],
+            [-21.15504, 55.41092], [-21.14799, 55.40543], [-21.13871, 55.40354], [-21.13470, 55.40834], [-21.12686, 55.41006], [-21.12077, 55.41796],
+            [-21.11669, 55.42045], [-21.11765, 55.42457], [-21.11349, 55.42903], [-21.11205, 55.43590], [-21.10804, 55.43967], [-21.10068, 55.45461],
+            [-21.09803, 55.45641], [-21.09355, 55.45504], [-21.09251, 55.45804], [-21.08594, 55.46371], [-21.08578, 55.46628], [-21.09203, 55.47709],
+            [-21.09563, 55.48044], [-21.09931, 55.48010], [-21.10212, 55.48825], [-21.11117, 55.49452], [-21.11741, 55.50190], [-21.13198, 55.50739],
+            [-21.14175, 55.50671], [-21.14703, 55.50207], [-21.15376, 55.50087], [-21.15856, 55.50207], [-21.16560, 55.49812], [-21.17761, 55.49520],
+            [-21.18281, 55.48997], [-21.18921, 55.47812], [-21.19049, 55.47366], [-21.18921, 55.47091], [-21.19386, 55.46439], [-21.19001, 55.45650],
+            [-21.19209, 55.45169], [-21.19530, 55.44929], [-21.19418, 55.44705]
+        ])
+    }),
+    salazie: Object.freeze({
+        nom: 'Salazie',
+        contour: Object.freeze([
+            [-21.10484, 55.49598], [-21.10004, 55.48087], [-21.09563, 55.48044], [-21.09203, 55.47709], [-21.08562, 55.46456], [-21.08274, 55.46319],
+            [-21.08178, 55.45735], [-21.06664, 55.44388], [-21.06079, 55.45255], [-21.05735, 55.45435], [-21.03043, 55.45383], [-21.02627, 55.46190],
+            [-21.02066, 55.46001], [-21.01457, 55.46104], [-21.00856, 55.46817], [-21.01016, 55.47246], [-21.00023, 55.49975], [-20.99911, 55.50851],
+            [-21.00335, 55.51443], [-21.00808, 55.51726], [-21.00471, 55.52859], [-21.00568, 55.53151], [-21.00391, 55.53872], [-21.00584, 55.55280],
+            [-21.00007, 55.55623], [-20.99991, 55.56087], [-20.99766, 55.56241], [-20.99253, 55.57391], [-20.99141, 55.57872], [-20.99366, 55.58576],
+            [-20.99967, 55.58670], [-21.00119, 55.58507], [-21.00055, 55.58267], [-21.00423, 55.58026], [-21.00600, 55.57443], [-21.01826, 55.55752],
+            [-21.02675, 55.55443], [-21.03844, 55.54567], [-21.06215, 55.53606], [-21.06664, 55.53125], [-21.07273, 55.53143], [-21.08298, 55.52490],
+            [-21.08490, 55.52731], [-21.08730, 55.52662], [-21.08738, 55.52310], [-21.09331, 55.51675], [-21.09555, 55.50988]
+        ])
+    })
+});
 /* =========================================================================
    RUN v1.9 — CHEMINEMENTS VERS LES CIRQUES : affichage, sélection, calculs
+   RUN v1.10 — règle « intelligente » des itinéraires proposés (28/10/2026)
    ========================================================================= */
 /*
- * Données : src/154 NPF_RUN_CHEMINEMENTS (4 tracés de Bastien, départ FMEP).
- * - Sans feu : les 4 cheminements en trait fin en fond (couche npfCheminementsFondLayer), bouton (pastille du bouton du
- *   Calque Routier) pour les afficher / cacher, choix mémorisé (NPF_CHEMINEMENTS_VISIBLES_KEY) ; nom à 2 NM et moins.
- * - Feu placé : la ligne droite FMEP -> feu reste TOUJOURS affichée et SÉLECTIONNÉE par défaut (route PÉLIC, src/150).
- *   Chaque cheminement dont le DERNIER point est à moins de 5 NM du feu est affiché, prolongé en ligne droite de son
- *   dernier point jusqu'au feu, avec une étiquette : nom, distance totale, temps à 200 kt, « Rot. ».
- * - Sélection en touchant le trait ou l'étiquette, comme les routes PÉLIC de la TEST (même dessin : vert = choisi,
- *   bleu = proposé) ; toucher la ligne droite revient à elle. L'app ne choisit JAMAIS un cheminement à la place du
- *   pilote ; un NOUVEAU feu repart sur la ligne droite.
- * - Calculs (src/270 updateCalculatorData) : chemin choisi -> distance = cheminement + dernière branche vers le feu
- *   (Nm arrondi) pour le temps, la rotation et le BINGO 1 FMEP (bandeau, étiquettes, calculateur) ; BINGO 2 FMEE :
- *   ligne droite, inchangé. Le calculateur affiche le nom du chemin choisi.
- * Les cheminements ne sont jamais des terrains (aucune liste de terrains, pélicandromes ni dégagement).
+ * Données : src/154 NPF_RUN_CHEMINEMENTS (7 itinéraires de Bastien, départ FMEP, cirque d'arrivée de chacun) et
+ * NPF_RUN_CIRQUES (contours de Mafate, Cilaos, Salazie).
+ * - Sans feu : les itinéraires en trait fin en fond (couche npfCheminementsFondLayer), bouton (pastille du bouton du
+ *   Calque Routier) pour les afficher / cacher, choix mémorisé (NPF_CHEMINEMENTS_VISIBLES_KEY) ; nom à 2 NM et moins,
+ *   au dernier point de chaque itinéraire (v1.10 : deux itinéraires partagent leur début).
+ * - Feu placé (v1.10) : itinéraires éligibles = ceux du cirque si le feu est DANS un cirque, tous sinon. Pour chacun,
+ *   son point (FMEP exclu) le plus proche du feu ; à moins de 5 NM, l'itinéraire est proposé COUPÉ à ce point, puis en
+ *   ligne droite jusqu'au feu. Deux propositions identiques (même suite de points) n'en font qu'une (noms joints).
+ *   Étiquette : nom, distance totale, temps à 200 kt, « Rot. ». La plus COURTE est présélectionnée ; la ligne droite
+ *   FMEP -> feu reste toujours affichée et sélectionnable (route PÉLIC, src/150) ; sans proposition, elle est choisie.
+ * - Sélection en touchant le trait ou l'étiquette, comme les routes PÉLIC de la TEST (vert = choisi, bleu = proposé) ;
+ *   toucher la ligne droite la choisit. Un NOUVEAU feu refait le calcul (présélection de la plus courte).
+ * - Calculs (src/270 updateCalculatorData) : chemin choisi -> distance totale (Nm arrondi) pour le temps, la rotation
+ *   et le BINGO 1 FMEP (bandeau, étiquettes, calculateur) ; BINGO 2 FMEE : ligne droite, inchangé. Le calculateur
+ *   affiche le nom du chemin choisi.
+ * Les itinéraires ne sont jamais des terrains (aucune liste de terrains, pélicandromes ni dégagement).
  */
 const NPF_CHEMINEMENTS_VISIBLES_KEY = 'npfCheminementsVisiblesV1';
 const NPF_CHEMINEMENT_FEU_MAX_NM = 5;
 const NPF_CHEMINEMENT_ETIQUETTE_MAX_NM = 2;
 let npfCheminementsFondLayer = null;
-let npfCheminementSelectionId = null;       // null = ligne droite FMEP -> feu
+const NPF_CHEMINEMENT_LIGNE_DROITE = 'ligne-droite';
+let npfCheminementSelectionId = null;       // null = présélection (la plus courte) ; NPF_CHEMINEMENT_LIGNE_DROITE = ligne droite
 let npfCheminementFeuKey = '';
 let npfCheminementEtiquettes = [];          // étiquettes des cheminements proposés (placement sans recouvrement)
 
@@ -31203,19 +31302,57 @@ function getNpfFeuKey(commune) {
     return Number.isFinite(lat) && Number.isFinite(lon) ? `${lat.toFixed(5)}|${lon.toFixed(5)}` : '';
 }
 
-/* Cheminements proposés pour un feu : dernier point à moins de 5 NM ; total = cheminement + dernière branche. */
+/* RUN v1.10 — cirque où se trouve un point (contours src/154), ou '' hors des cirques (point dans le polygone). */
+function getNpfCirqueDuPoint(lat, lon) {
+    const y = Number(lat);
+    const x = Number(lon);
+    if (!Number.isFinite(y) || !Number.isFinite(x)) return '';
+    return Object.keys(NPF_RUN_CIRQUES).find(cle => {
+        const c = NPF_RUN_CIRQUES[cle].contour;
+        let dedans = false;
+        for (let i = 0, j = c.length - 1; i < c.length; j = i, i += 1) {
+            if ((c[i][0] > y) !== (c[j][0] > y) && x < (c[j][1] - c[i][1]) * (y - c[i][0]) / (c[j][0] - c[i][0]) + c[i][1]) dedans = !dedans;
+        }
+        return dedans;
+    }) || '';
+}
+
+/* RUN v1.10 — propositions pour un feu, de la plus courte à la plus longue : itinéraires éligibles (cirque du feu, ou
+ * tous hors des cirques), chacun coupé à son point le plus proche du feu s'il est à moins de 5 NM, puis ligne droite
+ * jusqu'au feu ; total = somme des branches (FMEP, points gardés, feu) ; doublons fusionnés. */
 function getNpfCheminementsCandidats(lat, lon) {
     const feuLat = Number(lat);
     const feuLon = Number(lon);
-    if (!Number.isFinite(feuLat) || !Number.isFinite(feuLon)) return [];
-    return NPF_RUN_CHEMINEMENTS.map(cheminement => {
-        const dernier = cheminement.points[cheminement.points.length - 1];
-        const derniereBranche = calculateDistanceInNm(dernier[0], dernier[1], feuLat, feuLon);
-        return { cheminement, derniereBranche, totalNm: Number(cheminement.totalNm) + derniereBranche };
-    }).filter(c => Number.isFinite(c.derniereBranche) && c.derniereBranche < NPF_CHEMINEMENT_FEU_MAX_NM);
+    const depart = getNpfCheminementDepart();
+    if (!Number.isFinite(feuLat) || !Number.isFinite(feuLon) || !depart) return [];
+    const cirque = getNpfCirqueDuPoint(feuLat, feuLon);
+    const propositions = [];
+    NPF_RUN_CHEMINEMENTS.filter(cheminement => !cirque || cheminement.cirque === cirque).forEach(cheminement => {
+        let indexProche = -1;
+        let derniereBranche = Infinity;
+        cheminement.points.forEach((p, i) => {
+            const d = calculateDistanceInNm(p[0], p[1], feuLat, feuLon);
+            if (d < derniereBranche) { derniereBranche = d; indexProche = i; }
+        });
+        if (indexProche < 0 || !(derniereBranche < NPF_CHEMINEMENT_FEU_MAX_NM)) return;
+        const points = cheminement.points.slice(0, indexProche + 1);
+        const cle = points.map(p => `${p[0]},${p[1]}`).join(';');
+        const deja = propositions.find(x => x.cle === cle);
+        if (deja) {
+            deja.ids.push(cheminement.id);
+            deja.noms.push(cheminement.nom);
+            return;
+        }
+        let chemin = 0;
+        let precedent = depart;
+        points.forEach(p => { chemin += calculateDistanceInNm(precedent[0], precedent[1], p[0], p[1]); precedent = p; });
+        propositions.push({ cle, ids: [cheminement.id], noms: [cheminement.nom], points, coupe: indexProche < cheminement.points.length - 1, cirque, derniereBranche, totalNm: chemin + derniereBranche });
+    });
+    propositions.forEach(p => { p.id = p.ids.join('+'); p.nom = p.noms.join(' / '); });
+    return propositions.sort((a, b) => a.totalNm - b.totalNm);
 }
 
-/* Nouveau feu : retour à la ligne droite (le choix du pilote ne survit pas au changement de feu). */
+/* Nouveau feu : retour à la présélection (le choix du pilote ne survit pas au changement de feu). */
 function resetNpfCheminementPourFeu(commune) {
     const key = getNpfFeuKey(commune);
     if (key !== npfCheminementFeuKey) {
@@ -31224,12 +31361,19 @@ function resetNpfCheminementPourFeu(commune) {
     }
 }
 
-/* Chemin choisi pour le feu affiché, ou null (ligne droite). */
+/* Chemin choisi pour le feu affiché, ou null (ligne droite). v1.10 : sans choix du pilote, la plus courte. */
 function getNpfCheminementSelectionne() {
-    if (!npfCheminementSelectionId || typeof currentCommune === 'undefined' || !currentCommune) return null;
-    if (getNpfFeuKey(currentCommune) !== npfCheminementFeuKey) return null;
-    return getNpfCheminementsCandidats(currentCommune.latitude_mairie, currentCommune.longitude_mairie)
-        .find(c => c.cheminement.id === npfCheminementSelectionId) || null;
+    if (typeof currentCommune === 'undefined' || !currentCommune) return null;
+    const candidats = getNpfCheminementsCandidats(currentCommune.latitude_mairie, currentCommune.longitude_mairie);
+    const choixPilote = getNpfFeuKey(currentCommune) === npfCheminementFeuKey ? npfCheminementSelectionId : null;
+    if (choixPilote === NPF_CHEMINEMENT_LIGNE_DROITE) return null;
+    return (choixPilote && candidats.find(c => c.id === choixPilote)) || candidats[0] || null;
+}
+
+/* Toucher la ligne droite FMEP -> feu (src/150) : elle devient le chemin choisi pour ce feu. */
+function selectNpfLigneDroite() {
+    npfCheminementSelectionId = NPF_CHEMINEMENT_LIGNE_DROITE;
+    if (typeof currentCommune !== 'undefined' && currentCommune) npfCheminementFeuKey = getNpfFeuKey(currentCommune);
 }
 
 function selectNpfCheminementFromRoute(id) {
@@ -31245,24 +31389,24 @@ function drawNpfCheminementsVersFeu(lat, lon, layer) {
     const choisi = getNpfCheminementSelectionne();
     /* le chemin choisi est dessiné en DERNIER : son trait et son étiquette passent au-dessus des autres */
     const candidats = getNpfCheminementsCandidats(lat, lon)
-        .sort((a, b) => (choisi && a.cheminement.id === choisi.cheminement.id ? 1 : 0) - (choisi && b.cheminement.id === choisi.cheminement.id ? 1 : 0));
+        .sort((a, b) => (choisi && a.id === choisi.id ? 1 : 0) - (choisi && b.id === choisi.id ? 1 : 0));
     const traces = [];
     npfCheminementEtiquettes = [];
     candidats.forEach(candidat => {
-        const { cheminement, totalNm } = candidat;
-        const latlngs = [...getNpfCheminementLatLngs(cheminement), [Number(lat), Number(lon)]];
+        const { totalNm } = candidat;
+        const latlngs = [...getNpfCheminementLatLngs(candidat), [Number(lat), Number(lon)]];
         traces.push(...latlngs);
-        const isSelected = !!choisi && choisi.cheminement.id === cheminement.id;
+        const isSelected = !!choisi && choisi.id === candidat.id;
         const color = isSelected ? '#39ff14' : '#00a8ff';
         L.polyline(latlngs, { color: '#ffffff', weight: 9, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(layer);
         L.polyline(latlngs, { color, weight: 5, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(layer);
         const hitbox = L.polyline(latlngs, { color: 'transparent', weight: 24, opacity: 0 }).addTo(layer);
-        hitbox._npfCheminementId = cheminement.id;
+        hitbox._npfCheminementId = candidat.id;
         const choisir = event => {
             try {
                 if (event && event.originalEvent && typeof event.originalEvent.stopPropagation === 'function') event.originalEvent.stopPropagation();
             } catch (_) {}
-            selectNpfCheminementFromRoute(cheminement.id);
+            selectNpfCheminementFromRoute(candidat.id);
         };
         hitbox.on('click', choisir);
         const distance = Math.round(totalNm);
@@ -31271,7 +31415,7 @@ function drawNpfCheminementsVersFeu(lat, lon, layer) {
             const rotation = Math.round(calculateRotationTime(distance));
             if (Number.isFinite(rotation) && rotation > 0) rotationLine = `<div class="route-label-sub route-label-rotation">Rot. ${rotation} min</div>`;
         } catch (_) {}
-        const dernier = cheminement.points[cheminement.points.length - 1];
+        const dernier = candidat.points[candidat.points.length - 1];
         const tooltip = L.tooltip({
             permanent: true,
             interactive: true,
@@ -31280,7 +31424,7 @@ function drawNpfCheminementsVersFeu(lat, lon, layer) {
             className: `${isSelected ? 'route-tooltip route-tooltip-selected' : 'route-tooltip route-tooltip-other-pelic'} route-tooltip-clickable npf-cheminement-tooltip`,
             bubblingMouseEvents: false
         }).setLatLng([dernier[0], dernier[1]])
-            .setContent(`<div class="route-label-oaci npf-cheminement-nom-route">${escapeHtml(cheminement.nom)}</div><div class="route-label-sub">${distance} Nm / ${formatFlightTimeLabel(distance)}</div>${rotationLine}`)
+            .setContent(`<div class="route-label-oaci npf-cheminement-nom-route">${escapeHtml(candidat.nom)}</div><div class="route-label-sub">${distance} Nm / ${formatFlightTimeLabel(distance)}</div>${rotationLine}`)
             .addTo(layer);
         tooltip.on('click', choisir);
         tooltip.on('touchstart', choisir);
@@ -31324,7 +31468,7 @@ function placerNpfCheminementEtiquettes() {
     });
 }
 
-/* Tracés de fond (sans feu) : trait fin, nom à 2 NM et moins. */
+/* Tracés de fond (sans feu) : trait fin, nom à 2 NM et moins (v1.10 : au dernier point de l'itinéraire). */
 function refreshNpfCheminementsFond() {
     if (typeof map === 'undefined' || !map) return;
     if (!npfCheminementsFondLayer) npfCheminementsFondLayer = L.layerGroup();
@@ -31343,8 +31487,8 @@ function refreshNpfCheminementsFond() {
         L.polyline(latlngs, { color: '#ffffff', weight: 4.5, opacity: 0.75, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(npfCheminementsFondLayer);
         L.polyline(latlngs, { color: '#00695c', weight: 2.2, opacity: 0.95, dashArray: '7 5', interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(npfCheminementsFondLayer);
         if (Number.isFinite(echelle) && echelle <= NPF_CHEMINEMENT_ETIQUETTE_MAX_NM + 0.000001) {
-            const milieu = latlngs[Math.floor(latlngs.length / 2)];
-            L.marker(milieu, {
+            const fin = latlngs[latlngs.length - 1];
+            L.marker(fin, {
                 interactive: false,
                 keyboard: false,
                 icon: L.divIcon({ className: 'npf-cheminement-nom-icon', html: `<span class="npf-cheminement-nom">${escapeHtml(cheminement.nom)}</span>`, iconSize: [1, 1], iconAnchor: [0, 0] })
@@ -31359,7 +31503,7 @@ function refreshNpfCheminementsBouton(visibles = readNpfCheminementsVisibles()) 
     if (!bouton) return;
     bouton.classList.toggle('is-on', !!visibles);
     bouton.setAttribute('aria-pressed', visibles ? 'true' : 'false');
-    const texte = visibles ? 'Cheminements vers les cirques affichés — toucher pour les cacher' : 'Cheminements vers les cirques cachés — toucher pour les afficher';
+    const texte = visibles ? 'Itinéraires affichés — toucher pour les cacher' : 'Itinéraires cachés — toucher pour les afficher';
     bouton.title = texte;
     bouton.setAttribute('aria-label', texte);
 }
@@ -45669,10 +45813,10 @@ function updateCalculatorData() {
         const bingo2Airport = getAirportByOaci(NPF_RUN_BINGO2_OACI);
         CALCULATOR_DATA.distBingo1Feu = bingo1Airport ? Math.round(calculateDistanceInNm(bingo1Airport.lat, bingo1Airport.lon, feuLat, feuLon)) : 0;
         CALCULATOR_DATA.distBingo2Feu = bingo2Airport ? Math.round(calculateDistanceInNm(bingo2Airport.lat, bingo2Airport.lon, feuLat, feuLon)) : 0;
-        /* RUN v1.9 — chemin choisi par le pilote (src/155) : distance = cheminement + dernière branche vers le feu, arrondie,
+        /* RUN v1.9 — chemin choisi (src/155 ; v1.10 : présélection de la plus courte) : distance totale du chemin, arrondie,
          * pour le temps, la rotation (pélic FMEP), le transit (base FMEP) et le BINGO 1 FMEP. BINGO 2 FMEE : ligne droite. */
         const chemin = typeof getNpfCheminementSelectionne === 'function' ? getNpfCheminementSelectionne() : null;
-        CALCULATOR_DATA.cheminNom = chemin ? chemin.cheminement.nom : '';
+        CALCULATOR_DATA.cheminNom = chemin ? chemin.nom : '';
         if (chemin) {
             const distanceChemin = Math.round(chemin.totalNm);
             if (selectedPelicanOACI === 'FMEP') CALCULATOR_DATA.distPelicFeu = distanceChemin;

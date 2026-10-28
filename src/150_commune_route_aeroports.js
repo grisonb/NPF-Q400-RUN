@@ -126,7 +126,7 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
         /* v17.86 — le plus proche (liste triée par distance) garde sa bordure verte même si un autre est choisi. */
         drawRoute([lat, lon], [ap.lat, ap.lon], { oaci: ap.oaci, isNearest: index === 0 });
     });
-    /* RUN v1.9 — cheminements vers les cirques dont la fin est à moins de 5 NM du feu (src/155) ; tracés de fond cachés. */
+    /* RUN v1.9 — itinéraires proposés pour le feu (src/155 ; règle v1.10) ; tracés de fond cachés. */
     if (typeof drawNpfCheminementsVersFeu === 'function') allPoints.push(...drawNpfCheminementsVersFeu(lat, lon, routesLayer));
     if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
 
@@ -171,8 +171,8 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
 function selectPelicanOaciFromRoute(oaci) {
     const normalizedOaci = String(oaci || '').trim().toUpperCase();
     if (!normalizedOaci) return;
-    /* RUN v1.9 — toucher la ligne droite : retour à elle (plus de cheminement choisi). */
-    if (typeof npfCheminementSelectionId !== 'undefined') npfCheminementSelectionId = null;
+    /* RUN v1.9 — toucher la ligne droite : elle devient le chemin choisi (v1.10 : la présélection ne la reprend pas). */
+    if (typeof selectNpfLigneDroite === 'function') selectNpfLigneDroite();
     selectedPelicanOACI = normalizedOaci;
     displayCommuneDetails(currentCommune, false);
 }

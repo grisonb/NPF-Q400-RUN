@@ -1347,10 +1347,10 @@ function updateCalculatorData() {
         const bingo2Airport = getAirportByOaci(NPF_RUN_BINGO2_OACI);
         CALCULATOR_DATA.distBingo1Feu = bingo1Airport ? Math.round(calculateDistanceInNm(bingo1Airport.lat, bingo1Airport.lon, feuLat, feuLon)) : 0;
         CALCULATOR_DATA.distBingo2Feu = bingo2Airport ? Math.round(calculateDistanceInNm(bingo2Airport.lat, bingo2Airport.lon, feuLat, feuLon)) : 0;
-        /* RUN v1.9 — chemin choisi par le pilote (src/155) : distance = cheminement + dernière branche vers le feu, arrondie,
+        /* RUN v1.9 — chemin choisi (src/155 ; v1.10 : présélection de la plus courte) : distance totale du chemin, arrondie,
          * pour le temps, la rotation (pélic FMEP), le transit (base FMEP) et le BINGO 1 FMEP. BINGO 2 FMEE : ligne droite. */
         const chemin = typeof getNpfCheminementSelectionne === 'function' ? getNpfCheminementSelectionne() : null;
-        CALCULATOR_DATA.cheminNom = chemin ? chemin.cheminement.nom : '';
+        CALCULATOR_DATA.cheminNom = chemin ? chemin.nom : '';
         if (chemin) {
             const distanceChemin = Math.round(chemin.totalNm);
             if (selectedPelicanOACI === 'FMEP') CALCULATOR_DATA.distPelicFeu = distanceChemin;
