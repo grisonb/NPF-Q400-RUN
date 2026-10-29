@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.10';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.11';
 
 
 /*
@@ -7292,6 +7292,23 @@ const UPDATE_REMINDER_INTERVAL_MS = 5 * 24 * 60 * 60 * 1000;
 let startupGpsAutoCenteredWithRealPosition = false;
 let startupGpsStoredCenterAppliedAt = 0;
 let isSimulationMode = false;
+/* RUN v1.11 — « La Réunion toujours à l'écran » : une position GPS RÉELLE ne sert au centrage et au suivi de la carte
+ * que dans cette zone (rectangle de l'île — côte de 20,87° S à 21,39° S et de 55,21° E à 55,84° E — élargi d'environ
+ * 15 NM). Hors zone (par exemple en métropole), la carte reste sur l'île (NPF_RUN_VUE_ILE). Simulation : non concernée. */
+const NPF_RUN_ZONE_GPS = Object.freeze({ latMin: -21.64, latMax: -20.62, lonMin: 54.94, lonMax: 56.11 });
+const NPF_RUN_VUE_ILE = Object.freeze({ lat: -21.11, lon: 55.53, zoom: 10 });
+function isNpfRunPositionCentrable(lat, lng) {
+    if (isSimulationMode) return true;
+    const y = Number(lat);
+    const x = Number(lng);
+    return Number.isFinite(y) && Number.isFinite(x)
+        && y >= NPF_RUN_ZONE_GPS.latMin && y <= NPF_RUN_ZONE_GPS.latMax && x >= NPF_RUN_ZONE_GPS.lonMin && x <= NPF_RUN_ZONE_GPS.lonMax;
+}
+function centerNpfRunMapOnIle() {
+    if (typeof map === 'undefined' || !map) return false;
+    map.setView([NPF_RUN_VUE_ILE.lat, NPF_RUN_VUE_ILE.lon], NPF_RUN_VUE_ILE.zoom, { animate: false });
+    return true;
+}
 let simulationMapClickHandler = null;
 let simulationSuppressNextClickUntil = 0;
 let simulationActionPopup = null;
@@ -13416,7 +13433,8 @@ function initMap() {
     if (!startupInitialViewApplied) {
         try {
             const storedStartupGps = getStoredGpsPosition();
-            if (storedStartupGps) {
+            /* RUN v1.11 — position mémorisée hors de La Réunion : vue de l'île (plus bas). */
+            if (storedStartupGps && isNpfRunPositionCentrable(storedStartupGps.lat, storedStartupGps.lng)) {
                 map.setView(
                     [storedStartupGps.lat, storedStartupGps.lng],
                     STARTUP_GPS_CENTER_ZOOM,
@@ -17209,8 +17227,6 @@ function clearCurrentSelection(options = {}) {
     lftwRouteLayer.clearLayers();
     drawPermanentAirportMarkers();
     currentCommune = null;
-    /* RUN v1.9 — plus de feu : tracés de fond des cheminements (si affichés) (src/155). */
-    if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
     drawFireHistoryMarkers();
     localStorage.removeItem('currentCommune');
     updateBaseLabels();
@@ -17463,9 +17479,7 @@ function setupEventListeners() {
 
     if (roadOverlayButton) {
         refreshRoadOverlayButtonState();
-        roadOverlayButton.addEventListener('click', (event) => {
-            /* RUN v1.9 — la pastille des cheminements (src/155) ne touche pas au Calque Routier. */
-            if (typeof isNpfCheminementsToggleTarget === 'function' && isNpfCheminementsToggleTarget(event)) return;
+        roadOverlayButton.addEventListener('click', () => {
             toggleRoadOverlayLayer();
         });
     }
@@ -18703,8 +18717,18 @@ function updateCommuneGpsRouteDisplay() {
         userLatLng.lat, userLatLng.lng, target.lat, target.lon,
         { startDeclination: getNpfMagneticDeclination(userLatLng.lat, userLatLng.lng) }
     );
-    const distance = courseToTarget ? courseToTarget.distanceNm : NaN;
-    const magneticBearing = courseToTarget ? courseToTarget.magneticBearing : NaN;
+    let distance = courseToTarget ? courseToTarget.distanceNm : NaN;
+    let magneticBearing = courseToTarget ? courseToTarget.magneticBearing : NaN;
+    /* RUN v1.11 — trait AVION -> FEU modifié (src/205) : cap vers le 1er WP, distance et temps jusqu'au feu par les WP. */
+    const traitAvion = !target.airport && (!automaticFirePelicTarget || automaticFirePelicTarget.kind === 'fire') && typeof getNpfTraitFeuAvionPremierWp === 'function' ? getNpfTraitFeuAvionPremierWp() : null;
+    if (traitAvion) {
+        const versWp = computeNpfConstantMagneticCourse(userLatLng.lat, userLatLng.lng, traitAvion.lat, traitAvion.lon,
+            { startDeclination: getNpfMagneticDeclination(userLatLng.lat, userLatLng.lng) });
+        if (versWp) {
+            distance = versWp.distanceNm + traitAvion.resteNm;
+            magneticBearing = versWp.magneticBearing;
+        }
+    }
 
     if (routeInfo) {
         routeInfo.textContent = `${formatRouteDegrees(magneticBearing)} / ${Math.round(distance)} Nm / ${formatGpsEtaMinutes(distance)}`;
@@ -30344,8 +30368,8 @@ function updateMapBingoDisplay() {
 }
 
 function displayCommuneDetails(commune, shouldFitBounds = true) {
-    /* RUN v1.9 — nouveau feu : retour à la ligne droite (src/155). */
-    if (typeof resetNpfCheminementPourFeu === 'function') resetNpfCheminementPourFeu(commune);
+    /* RUN v1.11 — nouveau feu : traits AVION / FMEP -> FEU en ligne droite (src/205). */
+    if (typeof syncNpfTraitsFeuPourFeu === 'function') syncNpfTraitsFeuPourFeu(commune);
     saveFireHistory(commune);
     routesLayer.clearLayers();
     lftwRouteLayer.clearLayers();
@@ -30439,9 +30463,8 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
         /* v17.86 — le plus proche (liste triée par distance) garde sa bordure verte même si un autre est choisi. */
         drawRoute([lat, lon], [ap.lat, ap.lon], { oaci: ap.oaci, isNearest: index === 0 });
     });
-    /* RUN v1.9 — itinéraires proposés pour le feu (src/155 ; règle v1.10) ; tracés de fond cachés. */
-    if (typeof drawNpfCheminementsVersFeu === 'function') allPoints.push(...drawNpfCheminementsVersFeu(lat, lon, routesLayer));
-    if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
+    /* RUN v1.11 — WP des traits AVION / FMEP -> FEU (src/205). */
+    if (typeof drawNpfTraitsFeu === 'function') drawNpfTraitsFeu();
 
     drawWaterPointMarkersForCommune(commune);
 
@@ -30484,8 +30507,6 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
 function selectPelicanOaciFromRoute(oaci) {
     const normalizedOaci = String(oaci || '').trim().toUpperCase();
     if (!normalizedOaci) return;
-    /* RUN v1.9 — toucher la ligne droite : elle devient le chemin choisi (v1.10 : la présélection ne la reprend pas). */
-    if (typeof selectNpfLigneDroite === 'function') selectNpfLigneDroite();
     selectedPelicanOACI = normalizedOaci;
     displayCommuneDetails(currentCommune, false);
 }
@@ -30550,12 +30571,14 @@ function drawRoute(startLatLng, endLatLng, options = {}) {
     /* v17.57 — A : route avion -> cible et Feu -> BASE : chemin à cap constant
      * et distance fournis par l'appelant. Routes PÉLIC (sans cap affiché) :
      * orthodromie et distance inchangées (v17.18). */
-    const distance = Number.isFinite(Number(options.distanceNm))
+    /* RUN v1.11 — trait FMEP -> FEU modifié (WP, src/205) : la route PÉLIC FMEP suit les WP, distance totale. */
+    const traitFmep = oaci === 'FMEP' && typeof getNpfTraitFeuRouteFmep === 'function' ? getNpfTraitFeuRouteFmep() : null;
+    const distance = traitFmep ? traitFmep.distanceNm : (Number.isFinite(Number(options.distanceNm))
         ? Number(options.distanceNm)
-        : calculateDistanceInNm(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]);
-    const routeLatLngs = Array.isArray(options.routeLatLngs) && options.routeLatLngs.length >= 2
+        : calculateDistanceInNm(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]));
+    const routeLatLngs = traitFmep ? traitFmep.latlngs : (Array.isArray(options.routeLatLngs) && options.routeLatLngs.length >= 2
         ? options.routeLatLngs
-        : buildNpfGreatCircleLatLngs(startLatLng, endLatLng, distance);
+        : buildNpfGreatCircleLatLngs(startLatLng, endLatLng, distance));
     let labelText, color = 'var(--primary-color)', dashArray = '', layer = routesLayer;
 
     if (isUser) {
@@ -30569,9 +30592,7 @@ function drawRoute(startLatLng, endLatLng, options = {}) {
         dashArray = '5, 10';
         layer = lftwRouteLayer;
     } else if (oaci) {
-        /* RUN v1.9 — un cheminement choisi (src/155) : la ligne droite reste affichée mais n'est plus la route choisie. */
-        const isSelected = selectedPelicanOACI === oaci
-            && !(typeof getNpfCheminementSelectionne === 'function' && getNpfCheminementSelectionne());
+        const isSelected = selectedPelicanOACI === oaci;
         /* v15.44 — routes pélicandromes : couleur vive + bord blanc, 100 % opaque. */
         color = isSelected ? '#39ff14' : '#00a8ff';
         const tooltipClass = isSelected
@@ -31081,471 +31102,6 @@ function refreshUI() {
 }
 
 
-/* =========================================================================
-   RUN v1.9 — CHEMINEMENTS VERS LES CIRQUES (données) — dessinés par Bastien (25/10/2026)
-   RUN v1.10 — 3 itinéraires de plus (Cilaos, Nord par l'ouest, Nord par l'est), cirque d'arrivée de chaque itinéraire
-   (« cirque » : mafate, cilaos, salazie, ou '' hors cirque) et contours des 3 cirques (28/10/2026)
-   ========================================================================= */
-/* Tout part du point officiel de FMEP (pelicanAirports, ARP AIXM). Caps MAGNÉTIQUES et distances saisis par Bastien
- * (cap / dist) ; positions reconstruites DANS l'app avec computeNpfConstantMagneticCourse (même modèle que l'affichage
- * des branches de route WP : cap magnétique constant, déclinaison WMM2025 au point de départ de chaque branche) ;
- * l'app réaffiche les caps et distances saisis à 0,001° et 0,001 Nm près (tests/cdp_v19_reconstruction.js).
- * Une branche = [lat, lon, nom du point, cap magnétique saisi, distance saisie]. Total = somme des distances.
- * Pour ajouter un itinéraire (par exemple vers Cilaos) : une entrée de plus, avec son « cirque » ; rien d'autre à changer. */
-const NPF_RUN_CHEMINEMENTS = Object.freeze([
-    Object.freeze({
-        id: 'mafate-galets',
-        cirque: 'mafate',
-        nom: "Mafate par la Rivière des Galets",
-        totalNm: 34.6,
-        points: Object.freeze([
-            [-21.283734, 55.340042, "WP1 large L'Étang-Salé", 315.1, 5.3],
-            [-21.211237, 55.279961, "WP2 large Les Avirons", 342, 5.5],
-            [-21.080780, 55.221007, "WP3 large Saint-Gilles", 356.7, 8.5],
-            [-21.021135, 55.227574, "WP4 Boucan-Canot", 25.3, 3.6],
-            [-20.971728, 55.314406, "WP5 embouchure Rivière des Galets", 78, 5.7],
-            [-20.975713, 55.355209, "WP6", 115.3, 2.3],
-            [-20.998250, 55.386153, "WP7 sous Dos d'Âne", 147.3, 2.2],
-            [-21.007906, 55.410835, "WP8 entrée de Mafate", 132.1, 1.5]
-        ])
-    }),
-    Object.freeze({
-        id: 'mafate-cilaos',
-        cirque: 'mafate',
-        nom: "Mafate par Cilaos",
-        totalNm: 15.7,
-        points: Object.freeze([
-            [-21.281001, 55.470641, "WP1 au-dessus de La Rivière", 65.7, 3.5],
-            [-21.244068, 55.459729, "WP2 vers L'Entre-Deux", 4.3, 2.3],
-            [-21.200023, 55.449994, "WP3 entre Piton Cabris et Grand Piton", 8, 2.7],
-            [-21.108495, 55.454013, "WP4 col de Choupette / Marla", 21.9, 5.5],
-            [-21.089397, 55.431607, "WP5 La Nouvelle", 331.9, 1.7]
-        ])
-    }),
-    Object.freeze({
-        id: 'salazie-cilaos-mafate',
-        cirque: 'salazie',
-        nom: "Salazie par Cilaos et Mafate",
-        totalNm: 19.4,
-        points: Object.freeze([
-            [-21.281001, 55.470641, "WP1 au-dessus de La Rivière", 65.7, 3.5],
-            [-21.244068, 55.459729, "WP2 vers L'Entre-Deux", 4.3, 2.3],
-            [-21.200023, 55.449994, "WP3 entre Piton Cabris et Grand Piton", 8, 2.7],
-            [-21.108495, 55.454013, "WP4 col de Choupette / Marla", 21.9, 5.5],
-            [-21.081427, 55.427541, "WP5 La Nouvelle", 337.1, 2.2],
-            [-21.074769, 55.453347, "WP6 col des Bœufs", 94, 1.5],
-            [-21.053616, 55.473516, "WP7 Le Bélier", 61.1, 1.7]
-        ])
-    }),
-    Object.freeze({
-        id: 'salazie-cotier',
-        cirque: 'salazie',
-        nom: "Salazie par le côtier",
-        totalNm: 57.3,
-        points: Object.freeze([
-            [-21.359399, 55.511274, "WP1 Saint-Pierre", 135.2, 5.3],
-            [-21.382852, 55.572469, "WP2", 132.2, 3.7],
-            [-21.395545, 55.651800, "WP3 large Saint-Joseph", 119.6, 4.5],
-            [-21.354871, 55.812300, "WP4 Saint-Philippe", 94.6, 9.3],
-            [-21.172336, 55.843765, "WP5 Bois Blanc, Sainte-Rose", 28.8, 11.1],
-            [-21.063202, 55.736229, "WP6 Bras-Fusil", 336.9, 8.9],
-            [-20.985680, 55.690997, "WP7 Bras-Panon", 350.8, 5.3],
-            [-20.992710, 55.630813, "WP8", 282.2, 3.4],
-            [-21.007903, 55.603129, "WP9", 258.9, 1.8],
-            [-21.003893, 55.583980, "WP10", 302, 1.1],
-            [-21.016896, 55.561128, "WP11 Îlet Fleurs Jaunes", 258, 1.5],
-            [-21.029692, 55.540245, "WP12 Salazie", 256.1, 1.4]
-        ])
-    }),
-    /* RUN v1.10 — 3 itinéraires de Bastien (28/10/2026) ; un point à moins de 0,3 NM d'un point déjà enregistré EST ce
-     * point (fusion, positions reprises telles quelles) : liste des fusions dans rapports/non_regression_v110.txt. */
-    Object.freeze({
-        id: 'cilaos',
-        cirque: 'cilaos',
-        nom: "Cilaos",
-        totalNm: 8.5,
-        points: Object.freeze([
-            [-21.281001, 55.470641, "WP1 au-dessus de La Rivière", 68.2, 3.5],
-            [-21.200023, 55.449994, "WP2 entre Piton Cabris et Grand Piton", 6.4, 5]
-        ])
-    }),
-    Object.freeze({
-        id: 'nord-ouest',
-        cirque: '',
-        nom: "Nord par l'ouest",
-        totalNm: 38.8,
-        points: Object.freeze([
-            [-21.283734, 55.340042, "WP1 large L'Étang-Salé", 315.1, 5.3],
-            [-21.211237, 55.279961, "WP2 large Les Avirons", 342, 5.5],
-            [-21.080780, 55.221007, "WP3 large Saint-Gilles", 356.7, 8.5],
-            [-21.021135, 55.227574, "WP4 Boucan-Canot", 25.3, 3.6],
-            [-20.927823, 55.286361, "WP5 La Possession", 49.8, 6.5],
-            [-20.892557, 55.372989, "WP6 côte ouest de Saint-Denis", 85.7, 5.3],
-            [-20.921049, 55.439422, "WP7 au sud de Saint-Denis", 133.9, 4.1]
-        ])
-    }),
-    Object.freeze({
-        id: 'nord-est',
-        cirque: '',
-        nom: "Nord par l'est",
-        totalNm: 48.1,
-        points: Object.freeze([
-            [-21.382852, 55.572469, "WP1", 134.7, 9],
-            [-21.395545, 55.651800, "WP2 large Saint-Joseph", 119.4, 4.5],
-            [-21.354871, 55.812300, "WP3 Saint-Philippe", 94, 9.3],
-            [-21.172336, 55.843765, "WP4 Bois Blanc, Sainte-Rose", 28.9, 11.1],
-            [-21.063202, 55.736229, "WP5 Bras-Fusil", 336.8, 8.9],
-            [-20.985680, 55.690997, "WP6 Bras-Panon", 350.9, 5.3]
-        ])
-    })
-]);
-
-/* RUN v1.10 — contours des 3 cirques le long des crêtes des remparts (validés par Bastien le 28/10/2026). Calculés UNE
- * FOIS sur le PC (carte/outils_relief/42_contours_cirques.py : bassin versant en amont de la gorge de sortie, relief IGN
- * RGE ALTI de la carte RUN, sorties repérées sur OpenStreetMap ; simplifiés à 120 m) ; [lat, lon], polygone fermé. */
-const NPF_RUN_CIRQUES = Object.freeze({
-    mafate: Object.freeze({
-        nom: 'Mafate',
-        contour: Object.freeze([
-            [-21.11765, 55.42457], [-21.11669, 55.41993], [-21.10236, 55.40165], [-21.08186, 55.38963], [-21.06904, 55.38740], [-21.06280, 55.38242],
-            [-21.05030, 55.38088], [-21.04581, 55.37676], [-21.03957, 55.37830], [-21.03123, 55.38637], [-21.02370, 55.38912], [-21.00159, 55.36680],
-            [-20.99278, 55.36371], [-20.98668, 55.35891], [-20.98252, 55.36251], [-20.97875, 55.35933], [-20.98067, 55.36260], [-20.97651, 55.36689],
-            [-20.98035, 55.37461], [-20.98949, 55.38302], [-20.99061, 55.38903], [-20.98292, 55.40362], [-20.98292, 55.41959], [-20.98660, 55.42542],
-            [-20.98757, 55.43521], [-20.98965, 55.43607], [-20.99141, 55.44070], [-20.99061, 55.44911], [-20.99286, 55.45152], [-20.99253, 55.45392],
-            [-20.99662, 55.45761], [-20.99822, 55.45624], [-21.00864, 55.45744], [-21.01457, 55.46104], [-21.02066, 55.46001], [-21.02627, 55.46190],
-            [-21.03043, 55.45383], [-21.05735, 55.45435], [-21.06079, 55.45255], [-21.06664, 55.44388], [-21.08178, 55.45735], [-21.08274, 55.46319],
-            [-21.08554, 55.46448], [-21.09251, 55.45804], [-21.09355, 55.45504], [-21.09803, 55.45641], [-21.10068, 55.45461], [-21.10804, 55.43967],
-            [-21.11205, 55.43590], [-21.11349, 55.42903]
-        ])
-    }),
-    cilaos: Object.freeze({
-        nom: 'Cilaos',
-        contour: Object.freeze([
-            [-21.19658, 55.43899], [-21.19426, 55.43684], [-21.18673, 55.43718], [-21.18505, 55.43229], [-21.17905, 55.42963], [-21.16432, 55.41281],
-            [-21.15504, 55.41092], [-21.14799, 55.40543], [-21.13871, 55.40354], [-21.13470, 55.40834], [-21.12686, 55.41006], [-21.12077, 55.41796],
-            [-21.11669, 55.42045], [-21.11765, 55.42457], [-21.11349, 55.42903], [-21.11205, 55.43590], [-21.10804, 55.43967], [-21.10068, 55.45461],
-            [-21.09803, 55.45641], [-21.09355, 55.45504], [-21.09251, 55.45804], [-21.08594, 55.46371], [-21.08578, 55.46628], [-21.09203, 55.47709],
-            [-21.09563, 55.48044], [-21.09931, 55.48010], [-21.10212, 55.48825], [-21.11117, 55.49452], [-21.11741, 55.50190], [-21.13198, 55.50739],
-            [-21.14175, 55.50671], [-21.14703, 55.50207], [-21.15376, 55.50087], [-21.15856, 55.50207], [-21.16560, 55.49812], [-21.17761, 55.49520],
-            [-21.18281, 55.48997], [-21.18921, 55.47812], [-21.19049, 55.47366], [-21.18921, 55.47091], [-21.19386, 55.46439], [-21.19001, 55.45650],
-            [-21.19209, 55.45169], [-21.19530, 55.44929], [-21.19418, 55.44705]
-        ])
-    }),
-    salazie: Object.freeze({
-        nom: 'Salazie',
-        contour: Object.freeze([
-            [-21.10484, 55.49598], [-21.10004, 55.48087], [-21.09563, 55.48044], [-21.09203, 55.47709], [-21.08562, 55.46456], [-21.08274, 55.46319],
-            [-21.08178, 55.45735], [-21.06664, 55.44388], [-21.06079, 55.45255], [-21.05735, 55.45435], [-21.03043, 55.45383], [-21.02627, 55.46190],
-            [-21.02066, 55.46001], [-21.01457, 55.46104], [-21.00856, 55.46817], [-21.01016, 55.47246], [-21.00023, 55.49975], [-20.99911, 55.50851],
-            [-21.00335, 55.51443], [-21.00808, 55.51726], [-21.00471, 55.52859], [-21.00568, 55.53151], [-21.00391, 55.53872], [-21.00584, 55.55280],
-            [-21.00007, 55.55623], [-20.99991, 55.56087], [-20.99766, 55.56241], [-20.99253, 55.57391], [-20.99141, 55.57872], [-20.99366, 55.58576],
-            [-20.99967, 55.58670], [-21.00119, 55.58507], [-21.00055, 55.58267], [-21.00423, 55.58026], [-21.00600, 55.57443], [-21.01826, 55.55752],
-            [-21.02675, 55.55443], [-21.03844, 55.54567], [-21.06215, 55.53606], [-21.06664, 55.53125], [-21.07273, 55.53143], [-21.08298, 55.52490],
-            [-21.08490, 55.52731], [-21.08730, 55.52662], [-21.08738, 55.52310], [-21.09331, 55.51675], [-21.09555, 55.50988]
-        ])
-    })
-});
-/* =========================================================================
-   RUN v1.9 — CHEMINEMENTS VERS LES CIRQUES : affichage, sélection, calculs
-   RUN v1.10 — règle « intelligente » des itinéraires proposés (28/10/2026)
-   ========================================================================= */
-/*
- * Données : src/154 NPF_RUN_CHEMINEMENTS (7 itinéraires de Bastien, départ FMEP, cirque d'arrivée de chacun) et
- * NPF_RUN_CIRQUES (contours de Mafate, Cilaos, Salazie).
- * - Sans feu : les itinéraires en trait fin en fond (couche npfCheminementsFondLayer), bouton (pastille du bouton du
- *   Calque Routier) pour les afficher / cacher, choix mémorisé (NPF_CHEMINEMENTS_VISIBLES_KEY) ; nom à 2 NM et moins,
- *   au dernier point de chaque itinéraire (v1.10 : deux itinéraires partagent leur début).
- * - Feu placé (v1.10) : itinéraires éligibles = ceux du cirque si le feu est DANS un cirque, tous sinon. Pour chacun,
- *   son point (FMEP exclu) le plus proche du feu ; à moins de 5 NM, l'itinéraire est proposé COUPÉ à ce point, puis en
- *   ligne droite jusqu'au feu. Deux propositions identiques (même suite de points) n'en font qu'une (noms joints).
- *   Étiquette : nom, distance totale, temps à 200 kt, « Rot. ». La plus COURTE est présélectionnée ; la ligne droite
- *   FMEP -> feu reste toujours affichée et sélectionnable (route PÉLIC, src/150) ; sans proposition, elle est choisie.
- * - Sélection en touchant le trait ou l'étiquette, comme les routes PÉLIC de la TEST (vert = choisi, bleu = proposé) ;
- *   toucher la ligne droite la choisit. Un NOUVEAU feu refait le calcul (présélection de la plus courte).
- * - Calculs (src/270 updateCalculatorData) : chemin choisi -> distance totale (Nm arrondi) pour le temps, la rotation
- *   et le BINGO 1 FMEP (bandeau, étiquettes, calculateur) ; BINGO 2 FMEE : ligne droite, inchangé. Le calculateur
- *   affiche le nom du chemin choisi.
- * Les itinéraires ne sont jamais des terrains (aucune liste de terrains, pélicandromes ni dégagement).
- */
-const NPF_CHEMINEMENTS_VISIBLES_KEY = 'npfCheminementsVisiblesV1';
-const NPF_CHEMINEMENT_FEU_MAX_NM = 5;
-const NPF_CHEMINEMENT_ETIQUETTE_MAX_NM = 2;
-let npfCheminementsFondLayer = null;
-const NPF_CHEMINEMENT_LIGNE_DROITE = 'ligne-droite';
-let npfCheminementSelectionId = null;       // null = présélection (la plus courte) ; NPF_CHEMINEMENT_LIGNE_DROITE = ligne droite
-let npfCheminementFeuKey = '';
-let npfCheminementEtiquettes = [];          // étiquettes des cheminements proposés (placement sans recouvrement)
-
-function readNpfCheminementsVisibles() {
-    try { return localStorage.getItem(NPF_CHEMINEMENTS_VISIBLES_KEY) !== 'false'; } catch (_) { return true; }
-}
-
-function writeNpfCheminementsVisibles(visibles) {
-    try { localStorage.setItem(NPF_CHEMINEMENTS_VISIBLES_KEY, visibles ? 'true' : 'false'); } catch (_) {}
-}
-
-function getNpfCheminementDepart() {
-    const fmep = getAirportByOaci('FMEP');
-    return fmep ? [Number(fmep.lat), Number(fmep.lon)] : null;
-}
-
-/* Tracé du cheminement : FMEP puis ses points (branches courtes : segments droits). */
-function getNpfCheminementLatLngs(cheminement) {
-    const depart = getNpfCheminementDepart();
-    const points = cheminement.points.map(p => [p[0], p[1]]);
-    return depart ? [depart, ...points] : points;
-}
-
-function getNpfFeuKey(commune) {
-    const lat = Number(commune?.latitude_mairie);
-    const lon = Number(commune?.longitude_mairie);
-    return Number.isFinite(lat) && Number.isFinite(lon) ? `${lat.toFixed(5)}|${lon.toFixed(5)}` : '';
-}
-
-/* RUN v1.10 — cirque où se trouve un point (contours src/154), ou '' hors des cirques (point dans le polygone). */
-function getNpfCirqueDuPoint(lat, lon) {
-    const y = Number(lat);
-    const x = Number(lon);
-    if (!Number.isFinite(y) || !Number.isFinite(x)) return '';
-    return Object.keys(NPF_RUN_CIRQUES).find(cle => {
-        const c = NPF_RUN_CIRQUES[cle].contour;
-        let dedans = false;
-        for (let i = 0, j = c.length - 1; i < c.length; j = i, i += 1) {
-            if ((c[i][0] > y) !== (c[j][0] > y) && x < (c[j][1] - c[i][1]) * (y - c[i][0]) / (c[j][0] - c[i][0]) + c[i][1]) dedans = !dedans;
-        }
-        return dedans;
-    }) || '';
-}
-
-/* RUN v1.10 — propositions pour un feu, de la plus courte à la plus longue : itinéraires éligibles (cirque du feu, ou
- * tous hors des cirques), chacun coupé à son point le plus proche du feu s'il est à moins de 5 NM, puis ligne droite
- * jusqu'au feu ; total = somme des branches (FMEP, points gardés, feu) ; doublons fusionnés. */
-function getNpfCheminementsCandidats(lat, lon) {
-    const feuLat = Number(lat);
-    const feuLon = Number(lon);
-    const depart = getNpfCheminementDepart();
-    if (!Number.isFinite(feuLat) || !Number.isFinite(feuLon) || !depart) return [];
-    const cirque = getNpfCirqueDuPoint(feuLat, feuLon);
-    const propositions = [];
-    NPF_RUN_CHEMINEMENTS.filter(cheminement => !cirque || cheminement.cirque === cirque).forEach(cheminement => {
-        let indexProche = -1;
-        let derniereBranche = Infinity;
-        cheminement.points.forEach((p, i) => {
-            const d = calculateDistanceInNm(p[0], p[1], feuLat, feuLon);
-            if (d < derniereBranche) { derniereBranche = d; indexProche = i; }
-        });
-        if (indexProche < 0 || !(derniereBranche < NPF_CHEMINEMENT_FEU_MAX_NM)) return;
-        const points = cheminement.points.slice(0, indexProche + 1);
-        const cle = points.map(p => `${p[0]},${p[1]}`).join(';');
-        const deja = propositions.find(x => x.cle === cle);
-        if (deja) {
-            deja.ids.push(cheminement.id);
-            deja.noms.push(cheminement.nom);
-            return;
-        }
-        let chemin = 0;
-        let precedent = depart;
-        points.forEach(p => { chemin += calculateDistanceInNm(precedent[0], precedent[1], p[0], p[1]); precedent = p; });
-        propositions.push({ cle, ids: [cheminement.id], noms: [cheminement.nom], points, coupe: indexProche < cheminement.points.length - 1, cirque, derniereBranche, totalNm: chemin + derniereBranche });
-    });
-    propositions.forEach(p => { p.id = p.ids.join('+'); p.nom = p.noms.join(' / '); });
-    return propositions.sort((a, b) => a.totalNm - b.totalNm);
-}
-
-/* Nouveau feu : retour à la présélection (le choix du pilote ne survit pas au changement de feu). */
-function resetNpfCheminementPourFeu(commune) {
-    const key = getNpfFeuKey(commune);
-    if (key !== npfCheminementFeuKey) {
-        npfCheminementSelectionId = null;
-        npfCheminementFeuKey = key;
-    }
-}
-
-/* Chemin choisi pour le feu affiché, ou null (ligne droite). v1.10 : sans choix du pilote, la plus courte. */
-function getNpfCheminementSelectionne() {
-    if (typeof currentCommune === 'undefined' || !currentCommune) return null;
-    const candidats = getNpfCheminementsCandidats(currentCommune.latitude_mairie, currentCommune.longitude_mairie);
-    const choixPilote = getNpfFeuKey(currentCommune) === npfCheminementFeuKey ? npfCheminementSelectionId : null;
-    if (choixPilote === NPF_CHEMINEMENT_LIGNE_DROITE) return null;
-    return (choixPilote && candidats.find(c => c.id === choixPilote)) || candidats[0] || null;
-}
-
-/* Toucher la ligne droite FMEP -> feu (src/150) : elle devient le chemin choisi pour ce feu. */
-function selectNpfLigneDroite() {
-    npfCheminementSelectionId = NPF_CHEMINEMENT_LIGNE_DROITE;
-    if (typeof currentCommune !== 'undefined' && currentCommune) npfCheminementFeuKey = getNpfFeuKey(currentCommune);
-}
-
-function selectNpfCheminementFromRoute(id) {
-    if (typeof currentCommune === 'undefined' || !currentCommune) return;
-    npfCheminementSelectionId = id || null;
-    npfCheminementFeuKey = getNpfFeuKey(currentCommune);
-    displayCommuneDetails(currentCommune, false);
-}
-
-/* Routes des cheminements proposés (même dessin que les routes PÉLIC : vert = choisi, bleu = proposé). Renvoie les
- * points tracés (cadrage de la carte). */
-function drawNpfCheminementsVersFeu(lat, lon, layer) {
-    const choisi = getNpfCheminementSelectionne();
-    /* le chemin choisi est dessiné en DERNIER : son trait et son étiquette passent au-dessus des autres */
-    const candidats = getNpfCheminementsCandidats(lat, lon)
-        .sort((a, b) => (choisi && a.id === choisi.id ? 1 : 0) - (choisi && b.id === choisi.id ? 1 : 0));
-    const traces = [];
-    npfCheminementEtiquettes = [];
-    candidats.forEach(candidat => {
-        const { totalNm } = candidat;
-        const latlngs = [...getNpfCheminementLatLngs(candidat), [Number(lat), Number(lon)]];
-        traces.push(...latlngs);
-        const isSelected = !!choisi && choisi.id === candidat.id;
-        const color = isSelected ? '#39ff14' : '#00a8ff';
-        L.polyline(latlngs, { color: '#ffffff', weight: 9, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(layer);
-        L.polyline(latlngs, { color, weight: 5, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(layer);
-        const hitbox = L.polyline(latlngs, { color: 'transparent', weight: 24, opacity: 0 }).addTo(layer);
-        hitbox._npfCheminementId = candidat.id;
-        const choisir = event => {
-            try {
-                if (event && event.originalEvent && typeof event.originalEvent.stopPropagation === 'function') event.originalEvent.stopPropagation();
-            } catch (_) {}
-            selectNpfCheminementFromRoute(candidat.id);
-        };
-        hitbox.on('click', choisir);
-        const distance = Math.round(totalNm);
-        let rotationLine = '';
-        try {
-            const rotation = Math.round(calculateRotationTime(distance));
-            if (Number.isFinite(rotation) && rotation > 0) rotationLine = `<div class="route-label-sub route-label-rotation">Rot. ${rotation} min</div>`;
-        } catch (_) {}
-        const dernier = candidat.points[candidat.points.length - 1];
-        const tooltip = L.tooltip({
-            permanent: true,
-            interactive: true,
-            direction: 'top',
-            offset: [0, -8],
-            className: `${isSelected ? 'route-tooltip route-tooltip-selected' : 'route-tooltip route-tooltip-other-pelic'} route-tooltip-clickable npf-cheminement-tooltip`,
-            bubblingMouseEvents: false
-        }).setLatLng([dernier[0], dernier[1]])
-            .setContent(`<div class="route-label-oaci npf-cheminement-nom-route">${escapeHtml(candidat.nom)}</div><div class="route-label-sub">${distance} Nm / ${formatFlightTimeLabel(distance)}</div>${rotationLine}`)
-            .addTo(layer);
-        tooltip.on('click', choisir);
-        tooltip.on('touchstart', choisir);
-        npfCheminementEtiquettes.push(tooltip);
-    });
-    placerNpfCheminementEtiquettes();
-    return traces;
-}
-
-/* Étiquettes des cheminements proposés sans recouvrement (entre elles et avec les étiquettes de route déjà posées) :
- * chaque étiquette garde son point d'ancrage (dernier point du cheminement) et se décale verticalement (puis
- * latéralement) de la plus petite valeur qui la dégage. Refait à chaque fin de zoom. */
-function placerNpfCheminementEtiquettes() {
-    if (typeof map === 'undefined' || !map || !npfCheminementEtiquettes.length) return;
-    const boites = [];
-    const chevauche = b => boites.some(o => b.x < o.x + o.w + 4 && o.x < b.x + b.w + 4 && b.y < o.y + o.h + 4 && o.y < b.y + b.h + 4);
-    document.querySelectorAll('.route-tooltip:not(.npf-cheminement-tooltip)').forEach(element => {
-        const r = element.getBoundingClientRect();
-        if (r.width > 0) boites.push({ x: r.left, y: r.top, w: r.width, h: r.height });
-    });
-    const carte = map.getContainer().getBoundingClientRect();
-    npfCheminementEtiquettes.forEach(tooltip => {
-        const element = tooltip.getElement && tooltip.getElement();
-        if (!element) return;
-        const w = element.offsetWidth || 180;
-        const h = element.offsetHeight || 60;
-        const ancre = map.latLngToContainerPoint(tooltip.getLatLng());
-        const essais = [];
-        for (let k = 0; k <= 6; k += 1) {
-            [0, -1, 1].forEach(sens => essais.push([sens * (w + 8), -k * (h + 6)]));
-            if (k) [0, -1, 1].forEach(sens => essais.push([sens * (w + 8), k * (h + 6)]));
-        }
-        let choix = essais[0];
-        for (const [dx, dy] of essais) {
-            const b = { x: carte.left + ancre.x - w / 2 + dx, y: carte.top + ancre.y - 8 - h + dy, w, h };
-            if (!chevauche(b)) { choix = [dx, dy]; break; }
-        }
-        boites.push({ x: carte.left + ancre.x - w / 2 + choix[0], y: carte.top + ancre.y - 8 - h + choix[1], w, h });
-        tooltip.options.offset = L.point(choix[0], -8 + choix[1]);
-        tooltip.update();
-    });
-}
-
-/* Tracés de fond (sans feu) : trait fin, nom à 2 NM et moins (v1.10 : au dernier point de l'itinéraire). */
-function refreshNpfCheminementsFond() {
-    if (typeof map === 'undefined' || !map) return;
-    if (!npfCheminementsFondLayer) npfCheminementsFondLayer = L.layerGroup();
-    npfCheminementsFondLayer.clearLayers();
-    const visibles = readNpfCheminementsVisibles();
-    refreshNpfCheminementsBouton(visibles);
-    const feu = typeof currentCommune !== 'undefined' && !!currentCommune;
-    if (!visibles || feu) {
-        if (map.hasLayer(npfCheminementsFondLayer)) map.removeLayer(npfCheminementsFondLayer);
-        return;
-    }
-    let echelle = Infinity;
-    try { echelle = getCurrentNpfScaleNm(); } catch (_) {}
-    NPF_RUN_CHEMINEMENTS.forEach(cheminement => {
-        const latlngs = getNpfCheminementLatLngs(cheminement);
-        L.polyline(latlngs, { color: '#ffffff', weight: 4.5, opacity: 0.75, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(npfCheminementsFondLayer);
-        L.polyline(latlngs, { color: '#00695c', weight: 2.2, opacity: 0.95, dashArray: '7 5', interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(npfCheminementsFondLayer);
-        if (Number.isFinite(echelle) && echelle <= NPF_CHEMINEMENT_ETIQUETTE_MAX_NM + 0.000001) {
-            const fin = latlngs[latlngs.length - 1];
-            L.marker(fin, {
-                interactive: false,
-                keyboard: false,
-                icon: L.divIcon({ className: 'npf-cheminement-nom-icon', html: `<span class="npf-cheminement-nom">${escapeHtml(cheminement.nom)}</span>`, iconSize: [1, 1], iconAnchor: [0, 0] })
-            }).addTo(npfCheminementsFondLayer);
-        }
-    });
-    if (!map.hasLayer(npfCheminementsFondLayer)) npfCheminementsFondLayer.addTo(map);
-}
-
-function refreshNpfCheminementsBouton(visibles = readNpfCheminementsVisibles()) {
-    const bouton = document.getElementById('cheminements-toggle');
-    if (!bouton) return;
-    bouton.classList.toggle('is-on', !!visibles);
-    bouton.setAttribute('aria-pressed', visibles ? 'true' : 'false');
-    const texte = visibles ? 'Itinéraires affichés — toucher pour les cacher' : 'Itinéraires cachés — toucher pour les afficher';
-    bouton.title = texte;
-    bouton.setAttribute('aria-label', texte);
-}
-
-function toggleNpfCheminementsFond(event) {
-    if (event) {
-        try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
-    }
-    writeNpfCheminementsVisibles(!readNpfCheminementsVisibles());
-    refreshNpfCheminementsFond();
-}
-
-function isNpfCheminementsToggleTarget(event) {
-    return !!event?.target?.closest?.('#cheminements-toggle');
-}
-
-function initNpfCheminements() {
-    const bouton = document.getElementById('cheminements-toggle');
-    if (bouton && bouton.dataset.bound !== '1') {
-        bouton.dataset.bound = '1';
-        bouton.addEventListener('click', toggleNpfCheminementsFond);
-        refreshNpfCheminementsBouton();
-    }
-    let tries = 0;
-    const attempt = () => {
-        tries += 1;
-        if (typeof map !== 'undefined' && map && map.on) {
-            map.on('zoomend', refreshNpfCheminementsFond);
-            map.on('zoomend', () => setTimeout(placerNpfCheminementEtiquettes, 50));
-            refreshNpfCheminementsFond();
-            return;
-        }
-        if (tries < 240) setTimeout(attempt, 500);
-    };
-    setTimeout(attempt, 1200);
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initNpfCheminements, { once: true });
-} else {
-    initNpfCheminements();
-}
 /* =========================================================================
    v14.93 — Cartes VAC SIA hors ligne via GitHub Pages / IndexedDB
    ========================================================================= */
@@ -37831,6 +37387,449 @@ window.npfWaypointDeleteRoute = deleteWholeNpfWaypointRoute;
 window.npfWaypointDisableGoto = disableNpfWaypointGoto;
 
 
+/* ==========================================================================
+   RUN v1.11 — TRAITS VERS LE FEU MODIFIABLES : AVION -> FEU et FMEP -> FEU
+   --------------------------------------------------------------------------
+   Même mécanisme et mêmes gestes que les WP du mode navigation (src/200) :
+   - appui long près d'un trait : un WP y est inséré puis passe aussitôt en
+     « Déplacer » (poignée à faire glisser, relâcher pour poser) ;
+   - toucher un WP : sa fiche (Déplacer, Supprimer, Remettre en ligne droite) ;
+   - chaque branche affiche son cap magnétique et sa distance (étiquettes et
+     cap constant de src/200), le total est recalculé.
+   Calculs (src/270 updateCalculatorData) : AVION -> FEU modifié pour le temps de
+   transit (la 1re branche suit l'avion en direct) ; FMEP -> FEU modifié pour la
+   rotation, le BINGO 1 FMEP et les distances du calculateur ; BINGO 2 FMEE : ligne
+   droite. Un nouveau feu repart en ligne droite ; les WP sont gardés pour le feu
+   (localStorage, y compris après relance) ; aucun réseau (hors ligne).
+   Le mode navigation (route WP, GoTo) n'est pas modifié : il garde la priorité.
+   ========================================================================== */
+
+const NPF_TRAITS_FEU_KEY = 'npfTraitsFeuV1';
+const NPF_TRAITS_FEU_OACI = 'FMEP';
+const NPF_TRAITS_FEU_LIBELLES = { avion: 'AVION → FEU', fmep: 'FMEP → FEU' };
+let npfTraitsFeuState = { feuKey: '', avion: [], fmep: [] };
+let npfTraitsFeuLayer = null;
+let npfTraitsFeuLabelLayer = null;
+let npfTraitsFeuMarkers = new Map();        // id du WP -> marqueur
+let npfTraitsFeuMoveHandle = null;
+let npfTraitsFeuMoveOutsideHandler = null;
+
+/* RUN v1.11 — itinéraires (v1.9 / v1.10) retirés : leur réglage mémorisé est effacé. */
+try { localStorage.removeItem('npfCheminementsVisiblesV1'); } catch (_) {}
+
+function getNpfTraitsFeuKey(commune = (typeof currentCommune !== 'undefined' ? currentCommune : null)) {
+    const lat = Number(commune?.latitude_mairie);
+    const lon = Number(commune?.longitude_mairie);
+    return Number.isFinite(lat) && Number.isFinite(lon) ? `${lat.toFixed(5)}|${lon.toFixed(5)}` : '';
+}
+
+function normalizeNpfTraitsFeuWaypoints(list) {
+    return (Array.isArray(list) ? list : []).map((wp, index) => {
+        const lat = Number(wp?.lat);
+        const lon = Number(wp?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return { id: String(wp?.id || `tf-${Date.now()}-${index}`), lat, lon };
+    }).filter(Boolean);
+}
+
+function restoreNpfTraitsFeu() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(NPF_TRAITS_FEU_KEY) || 'null');
+        npfTraitsFeuState = {
+            feuKey: String(raw?.feuKey || ''),
+            avion: normalizeNpfTraitsFeuWaypoints(raw?.avion),
+            fmep: normalizeNpfTraitsFeuWaypoints(raw?.fmep)
+        };
+    } catch (_) {
+        npfTraitsFeuState = { feuKey: '', avion: [], fmep: [] };
+    }
+}
+
+function persistNpfTraitsFeu() {
+    try { localStorage.setItem(NPF_TRAITS_FEU_KEY, JSON.stringify(npfTraitsFeuState)); } catch (_) {}
+}
+
+/* Feu affiché : un NOUVEAU feu repart en ligne droite ; le même feu (relance, réaffichage) garde ses WP. */
+function syncNpfTraitsFeuPourFeu(commune) {
+    const key = getNpfTraitsFeuKey(commune);
+    if (!key || key === npfTraitsFeuState.feuKey) return;
+    npfTraitsFeuState = { feuKey: key, avion: [], fmep: [] };
+    persistNpfTraitsFeu();
+}
+
+function getNpfTraitsFeuWaypoints(trait) {
+    if (getNpfTraitsFeuKey() !== npfTraitsFeuState.feuKey || !npfTraitsFeuState.feuKey) return [];
+    return trait === 'avion' ? npfTraitsFeuState.avion : (trait === 'fmep' ? npfTraitsFeuState.fmep : []);
+}
+
+function getNpfTraitsFeuFeu() {
+    if (typeof currentCommune === 'undefined' || !currentCommune) return null;
+    const lat = Number(currentCommune.latitude_mairie);
+    const lon = Number(currentCommune.longitude_mairie);
+    return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+}
+
+/* Trait FMEP -> FEU présent seulement si la route de FMEP est dessinée (FMEP parmi les terrains affichés). */
+function isNpfTraitFmepAffiche() {
+    const feu = getNpfTraitsFeuFeu();
+    if (!feu) return false;
+    try {
+        const count = Number.parseInt(document.getElementById('airport-count')?.value || '0', 10);
+        const n = Number.isFinite(count) ? Math.max(0, Math.min(10, count)) : 0;
+        return getClosestAirports(feu.lat, feu.lon, n).some(ap => ap.oaci === NPF_TRAITS_FEU_OACI);
+    } catch (_) {
+        return false;
+    }
+}
+
+/* Trait AVION -> FEU présent seulement quand le trait rouge va de l'avion au feu (ni GoTo WP / terrain, ni cycle vers le pélic). */
+function isNpfTraitAvionVersFeu() {
+    if (!getNpfTraitsFeuFeu()) return false;
+    try {
+        if (window.__npfWaypointRouteReady === true && typeof isNpfWaypointGotoActive === 'function' && isNpfWaypointGotoActive()) return false;
+        if (typeof selectedAirportDestination !== 'undefined' && selectedAirportDestination) return false;
+        const cycle = typeof getNpfFirePelicAutoCycleTarget === 'function' ? getNpfFirePelicAutoCycleTarget() : null;
+        if (cycle && cycle.kind !== 'fire') return false;   // cycle armé vers le feu : c'est bien le trait AVION -> FEU
+    } catch (_) {}
+    return true;
+}
+
+function getNpfTraitsFeuAvionLatLng() {
+    try {
+        const p = userMarker?.getLatLng?.();
+        if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) return { lat: p.lat, lon: p.lng };
+    } catch (_) {}
+    return null;
+}
+
+/* Points du trait : départ (FMEP ou avion), WP, feu ; null si le trait n'est pas affiché. */
+function getNpfTraitFeuPoints(trait) {
+    const feu = getNpfTraitsFeuFeu();
+    if (!feu) return null;
+    let depart = null;
+    if (trait === 'fmep') {
+        if (!isNpfTraitFmepAffiche()) return null;
+        const ap = getAirportByOaci(NPF_TRAITS_FEU_OACI);
+        depart = ap ? { lat: Number(ap.lat), lon: Number(ap.lon) } : null;
+    } else if (trait === 'avion') {
+        if (!isNpfTraitAvionVersFeu()) return null;
+        depart = getNpfTraitsFeuAvionLatLng();
+    }
+    if (!depart) return null;
+    return [depart, ...getNpfTraitsFeuWaypoints(trait).map(wp => ({ lat: wp.lat, lon: wp.lon, id: wp.id })), feu];
+}
+
+/* Branche au cap magnétique constant (src/200) ; la 1re branche du trait AVION part de l'avion. */
+function getNpfTraitFeuBranche(trait, from, to, index) {
+    return getNpfWaypointCourse(from.lat, from.lon, to.lat, to.lon, trait === 'avion' && index === 0);
+}
+
+/* Distance totale du trait MODIFIÉ (null en ligne droite : les calculs gardent alors la ligne droite). */
+function getNpfTraitFeuDistanceNm(trait) {
+    if (!getNpfTraitsFeuWaypoints(trait).length) return null;
+    const points = getNpfTraitFeuPoints(trait);
+    if (!points) return null;
+    let total = 0;
+    for (let i = 0; i < points.length - 1; i += 1) {
+        const c = getNpfTraitFeuBranche(trait, points[i], points[i + 1], i);
+        if (!c || !Number.isFinite(c.distanceNm)) return null;
+        total += c.distanceNm;
+    }
+    return total;
+}
+
+/* Trait FMEP -> FEU modifié : géométrie et distance pour la route PÉLIC FMEP (src/150 drawRoute). */
+function getNpfTraitFeuRouteFmep() {
+    if (!getNpfTraitsFeuWaypoints('fmep').length) return null;
+    const points = getNpfTraitFeuPoints('fmep');
+    if (!points) return null;
+    const latlngs = [];
+    let total = 0;
+    for (let i = 0; i < points.length - 1; i += 1) {
+        const c = getNpfTraitFeuBranche('fmep', points[i], points[i + 1], i);
+        total += c ? c.distanceNm : calculateDistanceInNm(points[i].lat, points[i].lon, points[i + 1].lat, points[i + 1].lon);
+        const seg = c && Array.isArray(c.latlngs) ? c.latlngs : [[points[i].lat, points[i].lon], [points[i + 1].lat, points[i + 1].lon]];
+        latlngs.push(...(i ? seg.slice(1) : seg));
+    }
+    return { latlngs, distanceNm: total };
+}
+
+/* Trait AVION -> FEU modifié : 1er WP (cible du trait rouge en direct) et reste fixe jusqu'au feu. */
+function getNpfTraitFeuAvionPremierWp() {
+    if (!isNpfTraitAvionVersFeu()) return null;
+    const wps = getNpfTraitsFeuWaypoints('avion');
+    if (!wps.length) return null;
+    const feu = getNpfTraitsFeuFeu();
+    const points = [...wps, feu];
+    let reste = 0;
+    for (let i = 0; i < points.length - 1; i += 1) {
+        const c = getNpfTraitFeuBranche('avion', points[i], points[i + 1], i + 1);
+        reste += c ? c.distanceNm : 0;
+    }
+    return { lat: wps[0].lat, lon: wps[0].lon, resteNm: reste };
+}
+
+/* ---------- dessin : branches fixes du trait AVION, étiquettes cap / distance, losanges WP ---------- */
+function ensureNpfTraitsFeuLayers() {
+    if (typeof map === 'undefined' || !map || typeof L === 'undefined') return false;
+    if (typeof ensureNpfWaypointRouteLayers === 'function') ensureNpfWaypointRouteLayers();   // panes WP (src/200)
+    if (!npfTraitsFeuLayer) npfTraitsFeuLayer = L.layerGroup();
+    if (!npfTraitsFeuLabelLayer) npfTraitsFeuLabelLayer = L.layerGroup();
+    if (!map.hasLayer(npfTraitsFeuLayer)) npfTraitsFeuLayer.addTo(map);
+    if (!map.hasLayer(npfTraitsFeuLabelLayer)) npfTraitsFeuLabelLayer.addTo(map);
+    return true;
+}
+
+function buildNpfTraitsFeuIcon(index) {
+    return L.divIcon({
+        className: 'npf-waypoint-marker npf-trait-feu-marker',
+        html: `<span class="npf-waypoint-diamond"><span class="npf-waypoint-diamond-label">WP${index + 1}</span></span>`,
+        iconSize: [48, 48],
+        iconAnchor: [24, 24],
+        popupAnchor: [0, -24]
+    });
+}
+
+function buildNpfTraitsFeuPopupHtml(trait, wp, index) {
+    const id = String(wp.id).replace(/[^A-Za-z0-9_-]/g, '');
+    return `
+        <div class="npf-waypoint-popup npf-trait-feu-popup">
+            <div class="npf-waypoint-popup-title">WP${index + 1} — ${NPF_TRAITS_FEU_LIBELLES[trait]}</div>
+            <div class="npf-waypoint-popup-actions">
+                <button type="button" class="npf-waypoint-action npf-waypoint-move" onclick="window.npfTraitFeuMove('${trait}', '${id}')">Déplacer</button>
+                <button type="button" class="npf-waypoint-action npf-waypoint-delete" onclick="window.npfTraitFeuDelete('${trait}', '${id}')">Supprimer</button>
+                <button type="button" class="npf-waypoint-action npf-trait-feu-ligne-droite" onclick="window.npfTraitFeuLigneDroite('${trait}')">Remettre en ligne droite</button>
+            </div>
+        </div>`;
+}
+
+function drawNpfTraitsFeuLabels() {
+    if (!ensureNpfTraitsFeuLayers()) return;
+    npfTraitsFeuLabelLayer.clearLayers();
+    ['fmep', 'avion'].forEach(trait => {
+        if (!getNpfTraitsFeuWaypoints(trait).length) return;
+        const points = getNpfTraitFeuPoints(trait);
+        if (!points) return;
+        /* AVION : la 1re branche (en direct) est étiquetée par le trait rouge (src/260) ; ici les branches fixes. */
+        for (let i = trait === 'avion' ? 1 : 0; i < points.length - 1; i += 1) {
+            const label = buildNpfWaypointSegmentLabel(points[i], points[i + 1]);
+            if (!label) continue;
+            L.tooltip({ pane: 'npfWaypointLabelPane', permanent: true, direction: 'center', className: `npf-waypoint-segment-tooltip npf-trait-feu-segment ${label.zoomClass}`, opacity: 1, interactive: false })
+                .setLatLng(getNpfWaypointSegmentLabelLatLng(points[i], points[i + 1], label.metrics))
+                .setContent(label.text)
+                .addTo(npfTraitsFeuLabelLayer);
+        }
+    });
+}
+
+function drawNpfTraitsFeu() {
+    if (!ensureNpfTraitsFeuLayers()) return;
+    npfTraitsFeuLayer.clearLayers();
+    npfTraitsFeuMarkers = new Map();
+    ['fmep', 'avion'].forEach(trait => {
+        const wps = getNpfTraitsFeuWaypoints(trait);
+        if (!wps.length) return;
+        const points = getNpfTraitFeuPoints(trait);
+        if (!points) return;
+        if (trait === 'avion') {
+            /* branches fixes WP1 -> ... -> FEU, même dessin que le trait rouge avion -> feu */
+            const fixes = points.slice(1).map(p => [p.lat, p.lon]);
+            L.polyline(fixes, { color: '#ffffff', weight: 9, opacity: 0.95, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(npfTraitsFeuLayer);
+            L.polyline(fixes, { color: 'var(--secondary-color)', weight: 5, opacity: 1, dashArray: '5, 10', interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(npfTraitsFeuLayer);
+        }
+        wps.forEach((wp, index) => {
+            const marker = L.marker([wp.lat, wp.lon], { pane: 'npfWaypointMarkerPane', icon: buildNpfTraitsFeuIcon(index), zIndexOffset: 3100, keyboard: false, draggable: false });
+            marker.bindPopup(buildNpfTraitsFeuPopupHtml(trait, wp, index), { maxWidth: 390, closeButton: true });
+            marker._npfTraitFeu = { trait, id: wp.id };
+            marker.addTo(npfTraitsFeuLayer);
+            npfTraitsFeuMarkers.set(wp.id, marker);
+        });
+    });
+    drawNpfTraitsFeuLabels();
+}
+
+/* Après un changement de WP : routes du feu, trait rouge, calculs, WP. */
+function refreshNpfTraitsFeuApresChangement() {
+    persistNpfTraitsFeu();
+    if (typeof currentCommune !== 'undefined' && currentCommune) displayCommuneDetails(currentCommune, false);
+    try { drawUserToTargetRoute(); } catch (_) {}
+    drawNpfTraitsFeu();
+}
+
+/* ---------- gestes (mêmes que la route WP du mode navigation) ---------- */
+function getNpfTraitFeuSegmentAtLatLng(latlng, tolerancePx = NPF_WAYPOINT_ROUTE_LONG_PRESS_TOLERANCE_PX) {
+    if (!map || !latlng) return null;
+    let p;
+    try { p = map.latLngToContainerPoint(latlng); } catch (_) { return null; }
+    let best = null;
+    ['avion', 'fmep'].forEach(trait => {
+        const points = getNpfTraitFeuPoints(trait);
+        if (!points) return;
+        for (let i = 0; i < points.length - 1; i += 1) {
+            let a;
+            let b;
+            try {
+                a = map.latLngToContainerPoint([points[i].lat, points[i].lon]);
+                b = map.latLngToContainerPoint([points[i + 1].lat, points[i + 1].lon]);
+            } catch (_) { continue; }
+            const vx = b.x - a.x;
+            const vy = b.y - a.y;
+            const len2 = vx * vx + vy * vy;
+            if (!Number.isFinite(len2) || len2 < 25) continue;
+            const t = ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2;
+            if (t <= 0.05 || t >= 0.95) continue;   // « entre 2 points », comme src/200
+            const d = Math.hypot(p.x - (a.x + vx * t), p.y - (a.y + vy * t));
+            if (!Number.isFinite(d) || d > tolerancePx) continue;
+            if (!best || d < best.distancePx) best = { trait, insertIndex: i, distancePx: d };
+        }
+    });
+    return best;
+}
+
+function openNpfTraitFeuPopupNearLatLng(latlng, tolerancePx = NPF_WAYPOINT_SELECT_TOLERANCE_PX) {
+    if (!map || !latlng || !npfTraitsFeuMarkers.size) return false;
+    let p;
+    try { p = map.latLngToContainerPoint(latlng); } catch (_) { return false; }
+    let best = null;
+    npfTraitsFeuMarkers.forEach(marker => {
+        try {
+            const d = map.latLngToContainerPoint(marker.getLatLng()).distanceTo(p);
+            if (d <= tolerancePx && (!best || d < best.d)) best = { marker, d };
+        } catch (_) {}
+    });
+    if (!best) return false;
+    best.marker.openPopup();
+    return true;
+}
+
+/* Exécuter fn APRÈS la fin du toucher en cours : le trait FMEP touché est une route PÉLIC interactive (src/150) ; la
+ * redessiner pendant que le doigt est posé retirerait l'élément touché, Leaflet ne recevrait jamais la fin du toucher et
+ * le glisser suivant déplacerait la carte au lieu de la poignée. */
+function runNpfTraitsFeuApresToucher(fn) {
+    let fait = false;
+    const evenements = ['touchend', 'touchcancel', 'pointerup', 'mouseup'];
+    const lancer = () => {
+        if (fait) return;
+        fait = true;
+        evenements.forEach(type => document.removeEventListener(type, lancer, true));
+        setTimeout(fn, 0);
+    };
+    evenements.forEach(type => document.addEventListener(type, lancer, true));
+    setTimeout(lancer, 4000);
+}
+
+/* Appui long (src/320), après la route WP du mode navigation : sur un WP -> sa fiche ; près d'un trait -> nouveau WP. */
+function handleNpfTraitFeuLongPress(latlng) {
+    if (openNpfTraitFeuPopupNearLatLng(latlng)) return true;
+    const seg = getNpfTraitFeuSegmentAtLatLng(latlng);
+    if (!seg) return false;
+    const lat = Number(latlng.lat);
+    const lon = Number(latlng.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    syncNpfTraitsFeuPourFeu(currentCommune);
+    const wp = { id: `tf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, lat, lon };
+    (seg.trait === 'avion' ? npfTraitsFeuState.avion : npfTraitsFeuState.fmep).splice(seg.insertIndex, 0, wp);
+    persistNpfTraitsFeu();
+    /* comme src/200 : le WP passe aussitôt en « Déplacer » ; routes et calculs redessinés à la fin du toucher */
+    requestAnimationFrame(() => startNpfTraitFeuMove(seg.trait, wp.id));
+    runNpfTraitsFeuApresToucher(() => { if (npfTraitsFeuMoveHandle) return; refreshNpfTraitsFeuApresChangement(); });
+    return true;
+}
+
+function deleteNpfTraitFeuWaypoint(trait, id) {
+    const list = trait === 'avion' ? npfTraitsFeuState.avion : npfTraitsFeuState.fmep;
+    const index = list.findIndex(wp => wp.id === id);
+    if (index < 0) return false;
+    list.splice(index, 1);
+    try { map?.closePopup?.(); } catch (_) {}
+    refreshNpfTraitsFeuApresChangement();
+    return true;
+}
+
+function resetNpfTraitFeuLigneDroite(trait) {
+    if (trait === 'avion') npfTraitsFeuState.avion = [];
+    if (trait === 'fmep') npfTraitsFeuState.fmep = [];
+    try { map?.closePopup?.(); } catch (_) {}
+    refreshNpfTraitsFeuApresChangement();
+    return true;
+}
+
+function clearNpfTraitsFeuMoveOutside() {
+    if (!npfTraitsFeuMoveOutsideHandler) return;
+    try { document.removeEventListener('pointerdown', npfTraitsFeuMoveOutsideHandler, true); } catch (_) {}
+    npfTraitsFeuMoveOutsideHandler = null;
+}
+
+/* « Déplacer » : même poignée tactile de 76 px que src/200 (startNpfWaypointMove) ; un appui ailleurs annule. */
+function startNpfTraitFeuMove(trait, id) {
+    const list = trait === 'avion' ? npfTraitsFeuState.avion : npfTraitsFeuState.fmep;
+    const index = list.findIndex(wp => wp.id === id);
+    const wp = list[index];
+    if (!wp || !map || typeof L === 'undefined' || !ensureNpfTraitsFeuLayers()) return false;
+    try { map.closePopup?.(); } catch (_) {}
+    if (npfTraitsFeuMoveHandle) { try { npfTraitsFeuMoveHandle.remove(); } catch (_) {} npfTraitsFeuMoveHandle = null; }
+    clearNpfTraitsFeuMoveOutside();
+    const handle = L.marker([wp.lat, wp.lon], {
+        icon: L.divIcon({ className: 'npf-waypoint-move-handle', html: `<span class="npf-waypoint-move-handle-ring"><span>WP${index + 1}</span></span>`, iconSize: [76, 76], iconAnchor: [38, 38] }),
+        pane: map.getPane('npfWaypointMovePane') ? 'npfWaypointMovePane' : 'markerPane',
+        zIndexOffset: 20000, keyboard: false, draggable: true, autoPan: true, autoPanPadding: [60, 60], autoPanSpeed: 10
+    }).addTo(map);
+    npfTraitsFeuMoveHandle = handle;
+    let apercu = null;
+    const syncPosition = latlng => {
+        if (!latlng) return;
+        wp.lat = Number(latlng.lat);
+        wp.lon = Number(latlng.lng);
+        const marker = npfTraitsFeuMarkers.get(id);
+        try { marker?.setLatLng(latlng); } catch (_) {}
+        const points = getNpfTraitFeuPoints(trait);
+        if (!points) return;
+        try { apercu?.remove(); } catch (_) {}
+        apercu = L.polyline(points.map(p => [p.lat, p.lon]), { color: '#1d4ed8', weight: 4, opacity: 0.9, dashArray: '6 6', interactive: false }).addTo(npfTraitsFeuLayer);
+        drawNpfTraitsFeuLabels();
+    };
+    const finish = () => {
+        clearNpfTraitsFeuMoveOutside();
+        syncPosition(handle.getLatLng());
+        try { handle.remove(); } catch (_) {}
+        if (npfTraitsFeuMoveHandle === handle) npfTraitsFeuMoveHandle = null;
+        refreshNpfTraitsFeuApresChangement();
+    };
+    handle.on('drag', event => syncPosition(event.target.getLatLng()));
+    handle.once('dragend', finish);
+    window.setTimeout(() => {
+        if (npfTraitsFeuMoveHandle !== handle) return;
+        npfTraitsFeuMoveOutsideHandler = event => {
+            const target = event?.target;
+            if (target instanceof Element && target.closest('.npf-waypoint-move-handle')) return;
+            clearNpfTraitsFeuMoveOutside();
+            try { handle.remove(); } catch (_) {}
+            if (npfTraitsFeuMoveHandle === handle) npfTraitsFeuMoveHandle = null;
+            /* ce toucher peut viser la route PÉLIC (appui long suivant) : redessin à la fin du toucher */
+            runNpfTraitsFeuApresToucher(() => { if (!npfTraitsFeuMoveHandle) refreshNpfTraitsFeuApresChangement(); });
+        };
+        document.addEventListener('pointerdown', npfTraitsFeuMoveOutsideHandler, true);
+    }, 0);
+    try {
+        handle.bindTooltip('Déplacer le WP puis relâcher', { permanent: false, direction: 'top', className: 'npf-waypoint-move-hint', offset: [0, -32] }).openTooltip();
+        setTimeout(() => { try { handle.closeTooltip(); } catch (_) {} }, 1800);
+    } catch (_) {}
+    return true;
+}
+
+restoreNpfTraitsFeu();
+setTimeout(() => {
+    const installer = () => {
+        if (!ensureNpfTraitsFeuLayers()) return;
+        map.on('zoomend', drawNpfTraitsFeuLabels);
+        drawNpfTraitsFeu();
+    };
+    if (typeof map !== 'undefined' && map?.whenReady) map.whenReady(installer);
+}, 0);
+
+window.npfTraitFeuMove = startNpfTraitFeuMove;
+window.npfTraitFeuDelete = deleteNpfTraitFeuWaypoint;
+window.npfTraitFeuLigneDroite = resetNpfTraitFeuLigneDroite;
 let npfRunwayLastRenderSignature = '';
 let npfRunwayRefreshTimer = null;
 
@@ -42238,6 +42237,8 @@ function applyStartupGpsAutoCenter(lat, lng, { source = 'real', force = false } 
     const numericLat = Number(lat);
     const numericLng = Number(lng);
     if (!Number.isFinite(numericLat) || !Number.isFinite(numericLng)) return false;
+    /* RUN v1.11 — position hors de La Réunion : ni centrage ni suivi, la carte reste sur l'île. */
+    if (!isNpfRunPositionCentrable(numericLat, numericLng)) return false;
 
     const isRealPosition = source !== 'stored';
 
@@ -42309,6 +42310,8 @@ function centerMapOnGpsOverviewAfterClear() {
         const numericLat = Number(lat);
         const numericLng = Number(lng);
         if (!Number.isFinite(numericLat) || !Number.isFinite(numericLng)) return false;
+        /* RUN v1.11 — position hors de La Réunion : vue de l'île. */
+        if (!isNpfRunPositionCentrable(numericLat, numericLng)) return centerNpfRunMapOnIle();
         map.setView([numericLat, numericLng], zoom, { animate: false });
         return true;
     };
@@ -42437,7 +42440,13 @@ function setupGpsResumeHandlers() {
 }
 
 
+/* RUN v1.11 — position connue utilisable pour centrer / suivre : seulement à La Réunion (src/030). */
 function getKnownGpsLatLngForCentering() {
+    const pos = getKnownGpsLatLngRaw();
+    return pos && isNpfRunPositionCentrable(pos.lat, pos.lng) ? pos : null;
+}
+
+function getKnownGpsLatLngRaw() {
     if (userMarker && typeof userMarker.getLatLng === 'function') {
         try {
             const pos = userMarker.getLatLng();
@@ -42911,7 +42920,11 @@ function getCenterGpsFollowMapCenter(pos, zoom) {
 function recenterMapOnKnownGpsPosition(reason = 'manual') {
     if (!map) return false;
     const pos = getKnownGpsLatLngForCentering();
-    if (!pos) return false;
+    if (!pos) {
+        /* RUN v1.11 — position connue hors de La Réunion : un recentrage demandé ramène l'île ; le suivi ne bouge rien. */
+        if (String(reason || '') !== 'gps-update' && getKnownGpsLatLngRaw()) return centerNpfRunMapOnIle();
+        return false;
+    }
 
     /*
      * v13.40 — retour base v13.34 : le bouton Suivi ne doit plus provoquer
@@ -43665,12 +43678,16 @@ function drawUserToTargetRoute() {
         ? getNpfFirePelicAutoCycleTarget()
         : null;
 
+    /* RUN v1.11 — trait AVION -> FEU modifié (src/205) : le trait rouge va en direct au 1er WP. */
+    const traitAvionPremierWp = (!routeWaypointTarget && !selectedAirportDestination && (!automaticFirePelicTarget || automaticFirePelicTarget.kind === 'fire')
+        && typeof getNpfTraitFeuAvionPremierWp === 'function') ? getNpfTraitFeuAvionPremierWp() : null;
+
     const target = routeWaypointTarget
         ? {
             lat: Number(routeWaypointTarget.lat),
             lon: Number(routeWaypointTarget.lon)
         }
-        : (selectedAirportDestination
+        : traitAvionPremierWp ? { lat: traitAvionPremierWp.lat, lon: traitAvionPremierWp.lon } : (selectedAirportDestination
             ? {
                 lat: Number(selectedAirportDestination.lat),
                 lon: Number(selectedAirportDestination.lon)
@@ -45053,7 +45070,7 @@ function enableSimulationMode() {
      * La position est capturée AVANT de couper le watch GPS afin que l'utilisateur
      * n'ait plus à repositionner manuellement l'avion pour commencer un scénario.
      */
-    const knownGpsBeforeSimulation = getKnownGpsLatLngForCentering();
+    const knownGpsBeforeSimulation = getKnownGpsLatLngRaw();   /* RUN v1.11 : simulation non concernée par la zone */
 
     simulationWasLiveGpsActiveBeforeSimulation = (localStorage.getItem('liveGpsActive') === 'true') || !!watchId;
     isSimulationMode = true;
@@ -45813,22 +45830,18 @@ function updateCalculatorData() {
         const bingo2Airport = getAirportByOaci(NPF_RUN_BINGO2_OACI);
         CALCULATOR_DATA.distBingo1Feu = bingo1Airport ? Math.round(calculateDistanceInNm(bingo1Airport.lat, bingo1Airport.lon, feuLat, feuLon)) : 0;
         CALCULATOR_DATA.distBingo2Feu = bingo2Airport ? Math.round(calculateDistanceInNm(bingo2Airport.lat, bingo2Airport.lon, feuLat, feuLon)) : 0;
-        /* RUN v1.9 — chemin choisi (src/155 ; v1.10 : présélection de la plus courte) : distance totale du chemin, arrondie,
-         * pour le temps, la rotation (pélic FMEP), le transit (base FMEP) et le BINGO 1 FMEP. BINGO 2 FMEE : ligne droite. */
-        const chemin = typeof getNpfCheminementSelectionne === 'function' ? getNpfCheminementSelectionne() : null;
-        CALCULATOR_DATA.cheminNom = chemin ? chemin.nom : '';
-        if (chemin) {
-            const distanceChemin = Math.round(chemin.totalNm);
-            if (selectedPelicanOACI === 'FMEP') CALCULATOR_DATA.distPelicFeu = distanceChemin;
-            if (selectedBaseOACI === 'FMEP') CALCULATOR_DATA.distBaseFeu = distanceChemin;
-            CALCULATOR_DATA.distBingo1Feu = distanceChemin;
+        /* RUN v1.11 — traits modifiés (WP, src/205) : FMEP -> FEU pour la rotation (pélic FMEP), le transit (base FMEP) et le
+         * BINGO 1 FMEP ; AVION -> FEU pour le temps de transit avion. BINGO 2 FMEE : ligne droite. */
+        const traitFmepNm = typeof getNpfTraitFeuDistanceNm === 'function' ? getNpfTraitFeuDistanceNm('fmep') : null;
+        if (Number.isFinite(traitFmepNm)) {
+            const d = Math.round(traitFmepNm);
+            if (selectedPelicanOACI === 'FMEP') CALCULATOR_DATA.distPelicFeu = d;
+            if (selectedBaseOACI === 'FMEP') CALCULATOR_DATA.distBaseFeu = d;
+            CALCULATOR_DATA.distBingo1Feu = d;
         }
+        const traitAvionNm = typeof getNpfTraitFeuDistanceNm === 'function' ? getNpfTraitFeuDistanceNm('avion') : null;
+        if (Number.isFinite(traitAvionNm)) CALCULATOR_DATA.distGpsFeu = Math.round(traitAvionNm);
     }
-    /* RUN v1.9 — nom du chemin choisi dans le calculateur */
-    document.querySelectorAll('.npf-chemin-choisi').forEach(element => {
-        element.textContent = !currentCommune ? '--'
-            : (CALCULATOR_DATA.cheminNom ? `${CALCULATOR_DATA.cheminNom} (${CALCULATOR_DATA.distBingo1Feu} Nm)` : 'Ligne droite FMEP');
-    });
     if (typeof masterRecalculate === 'function') { masterRecalculate(); }
 }
 
@@ -57616,6 +57629,11 @@ async function executeMapLongPressAction(latlng) {
      * strictement inchangé.
      */
     if (window.__npfWaypointRouteReady === true && handleNpfWaypointRouteLongPress(latlng)) {
+        return;
+    }
+
+    /* RUN v1.11 — traits AVION / FMEP -> FEU (src/205) : même geste, après la route WP du mode navigation. */
+    if (typeof handleNpfTraitFeuLongPress === 'function' && handleNpfTraitFeuLongPress(latlng)) {
         return;
     }
 

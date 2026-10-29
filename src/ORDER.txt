@@ -16,13 +16,12 @@
 130_trafic_reglages_suivi.js
 140_trafic_rendu.js
 150_commune_route_aeroports.js
-154_cheminements_donnees.js
-155_cheminements.js
 160_vac.js
 170_fds_briefing_nas.js
 180_global_link.js
 190_pdf_terrains.js
 200_waypoints.js
+205_traits_feu.js
 210_pistes_notam_trace.js
 220_frequences_marqueurs_terrains.js
 230_calques_departements.js

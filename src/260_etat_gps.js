@@ -296,6 +296,8 @@ function applyStartupGpsAutoCenter(lat, lng, { source = 'real', force = false } 
     const numericLat = Number(lat);
     const numericLng = Number(lng);
     if (!Number.isFinite(numericLat) || !Number.isFinite(numericLng)) return false;
+    /* RUN v1.11 — position hors de La Réunion : ni centrage ni suivi, la carte reste sur l'île. */
+    if (!isNpfRunPositionCentrable(numericLat, numericLng)) return false;
 
     const isRealPosition = source !== 'stored';
 
@@ -367,6 +369,8 @@ function centerMapOnGpsOverviewAfterClear() {
         const numericLat = Number(lat);
         const numericLng = Number(lng);
         if (!Number.isFinite(numericLat) || !Number.isFinite(numericLng)) return false;
+        /* RUN v1.11 — position hors de La Réunion : vue de l'île. */
+        if (!isNpfRunPositionCentrable(numericLat, numericLng)) return centerNpfRunMapOnIle();
         map.setView([numericLat, numericLng], zoom, { animate: false });
         return true;
     };
@@ -495,7 +499,13 @@ function setupGpsResumeHandlers() {
 }
 
 
+/* RUN v1.11 — position connue utilisable pour centrer / suivre : seulement à La Réunion (src/030). */
 function getKnownGpsLatLngForCentering() {
+    const pos = getKnownGpsLatLngRaw();
+    return pos && isNpfRunPositionCentrable(pos.lat, pos.lng) ? pos : null;
+}
+
+function getKnownGpsLatLngRaw() {
     if (userMarker && typeof userMarker.getLatLng === 'function') {
         try {
             const pos = userMarker.getLatLng();
@@ -969,7 +979,11 @@ function getCenterGpsFollowMapCenter(pos, zoom) {
 function recenterMapOnKnownGpsPosition(reason = 'manual') {
     if (!map) return false;
     const pos = getKnownGpsLatLngForCentering();
-    if (!pos) return false;
+    if (!pos) {
+        /* RUN v1.11 — position connue hors de La Réunion : un recentrage demandé ramène l'île ; le suivi ne bouge rien. */
+        if (String(reason || '') !== 'gps-update' && getKnownGpsLatLngRaw()) return centerNpfRunMapOnIle();
+        return false;
+    }
 
     /*
      * v13.40 — retour base v13.34 : le bouton Suivi ne doit plus provoquer
@@ -1723,12 +1737,16 @@ function drawUserToTargetRoute() {
         ? getNpfFirePelicAutoCycleTarget()
         : null;
 
+    /* RUN v1.11 — trait AVION -> FEU modifié (src/205) : le trait rouge va en direct au 1er WP. */
+    const traitAvionPremierWp = (!routeWaypointTarget && !selectedAirportDestination && (!automaticFirePelicTarget || automaticFirePelicTarget.kind === 'fire')
+        && typeof getNpfTraitFeuAvionPremierWp === 'function') ? getNpfTraitFeuAvionPremierWp() : null;
+
     const target = routeWaypointTarget
         ? {
             lat: Number(routeWaypointTarget.lat),
             lon: Number(routeWaypointTarget.lon)
         }
-        : (selectedAirportDestination
+        : traitAvionPremierWp ? { lat: traitAvionPremierWp.lat, lon: traitAvionPremierWp.lon } : (selectedAirportDestination
             ? {
                 lat: Number(selectedAirportDestination.lat),
                 lon: Number(selectedAirportDestination.lon)

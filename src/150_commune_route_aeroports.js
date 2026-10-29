@@ -31,8 +31,8 @@ function updateMapBingoDisplay() {
 }
 
 function displayCommuneDetails(commune, shouldFitBounds = true) {
-    /* RUN v1.9 — nouveau feu : retour à la ligne droite (src/155). */
-    if (typeof resetNpfCheminementPourFeu === 'function') resetNpfCheminementPourFeu(commune);
+    /* RUN v1.11 — nouveau feu : traits AVION / FMEP -> FEU en ligne droite (src/205). */
+    if (typeof syncNpfTraitsFeuPourFeu === 'function') syncNpfTraitsFeuPourFeu(commune);
     saveFireHistory(commune);
     routesLayer.clearLayers();
     lftwRouteLayer.clearLayers();
@@ -126,9 +126,8 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
         /* v17.86 — le plus proche (liste triée par distance) garde sa bordure verte même si un autre est choisi. */
         drawRoute([lat, lon], [ap.lat, ap.lon], { oaci: ap.oaci, isNearest: index === 0 });
     });
-    /* RUN v1.9 — itinéraires proposés pour le feu (src/155 ; règle v1.10) ; tracés de fond cachés. */
-    if (typeof drawNpfCheminementsVersFeu === 'function') allPoints.push(...drawNpfCheminementsVersFeu(lat, lon, routesLayer));
-    if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
+    /* RUN v1.11 — WP des traits AVION / FMEP -> FEU (src/205). */
+    if (typeof drawNpfTraitsFeu === 'function') drawNpfTraitsFeu();
 
     drawWaterPointMarkersForCommune(commune);
 
@@ -171,8 +170,6 @@ function displayCommuneDetails(commune, shouldFitBounds = true) {
 function selectPelicanOaciFromRoute(oaci) {
     const normalizedOaci = String(oaci || '').trim().toUpperCase();
     if (!normalizedOaci) return;
-    /* RUN v1.9 — toucher la ligne droite : elle devient le chemin choisi (v1.10 : la présélection ne la reprend pas). */
-    if (typeof selectNpfLigneDroite === 'function') selectNpfLigneDroite();
     selectedPelicanOACI = normalizedOaci;
     displayCommuneDetails(currentCommune, false);
 }
@@ -237,12 +234,14 @@ function drawRoute(startLatLng, endLatLng, options = {}) {
     /* v17.57 — A : route avion -> cible et Feu -> BASE : chemin à cap constant
      * et distance fournis par l'appelant. Routes PÉLIC (sans cap affiché) :
      * orthodromie et distance inchangées (v17.18). */
-    const distance = Number.isFinite(Number(options.distanceNm))
+    /* RUN v1.11 — trait FMEP -> FEU modifié (WP, src/205) : la route PÉLIC FMEP suit les WP, distance totale. */
+    const traitFmep = oaci === 'FMEP' && typeof getNpfTraitFeuRouteFmep === 'function' ? getNpfTraitFeuRouteFmep() : null;
+    const distance = traitFmep ? traitFmep.distanceNm : (Number.isFinite(Number(options.distanceNm))
         ? Number(options.distanceNm)
-        : calculateDistanceInNm(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]);
-    const routeLatLngs = Array.isArray(options.routeLatLngs) && options.routeLatLngs.length >= 2
+        : calculateDistanceInNm(startLatLng[0], startLatLng[1], endLatLng[0], endLatLng[1]));
+    const routeLatLngs = traitFmep ? traitFmep.latlngs : (Array.isArray(options.routeLatLngs) && options.routeLatLngs.length >= 2
         ? options.routeLatLngs
-        : buildNpfGreatCircleLatLngs(startLatLng, endLatLng, distance);
+        : buildNpfGreatCircleLatLngs(startLatLng, endLatLng, distance));
     let labelText, color = 'var(--primary-color)', dashArray = '', layer = routesLayer;
 
     if (isUser) {
@@ -256,9 +255,7 @@ function drawRoute(startLatLng, endLatLng, options = {}) {
         dashArray = '5, 10';
         layer = lftwRouteLayer;
     } else if (oaci) {
-        /* RUN v1.9 — un cheminement choisi (src/155) : la ligne droite reste affichée mais n'est plus la route choisie. */
-        const isSelected = selectedPelicanOACI === oaci
-            && !(typeof getNpfCheminementSelectionne === 'function' && getNpfCheminementSelectionne());
+        const isSelected = selectedPelicanOACI === oaci;
         /* v15.44 — routes pélicandromes : couleur vive + bord blanc, 100 % opaque. */
         color = isSelected ? '#39ff14' : '#00a8ff';
         const tooltipClass = isSelected

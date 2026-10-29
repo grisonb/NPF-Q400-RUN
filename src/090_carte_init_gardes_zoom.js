@@ -30,7 +30,8 @@ function initMap() {
     if (!startupInitialViewApplied) {
         try {
             const storedStartupGps = getStoredGpsPosition();
-            if (storedStartupGps) {
+            /* RUN v1.11 — position mémorisée hors de La Réunion : vue de l'île (plus bas). */
+            if (storedStartupGps && isNpfRunPositionCentrable(storedStartupGps.lat, storedStartupGps.lng)) {
                 map.setView(
                     [storedStartupGps.lat, storedStartupGps.lng],
                     STARTUP_GPS_CENTER_ZOOM,

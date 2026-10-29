@@ -165,6 +165,11 @@ async function executeMapLongPressAction(latlng) {
         return;
     }
 
+    /* RUN v1.11 — traits AVION / FMEP -> FEU (src/205) : même geste, après la route WP du mode navigation. */
+    if (typeof handleNpfTraitFeuLongPress === 'function' && handleNpfTraitFeuLongPress(latlng)) {
+        return;
+    }
+
     /*
      * v15.77 — l'appui long utilise une logique unique en mode normal et SIM.
      * Le SIV reste recherché à la demande même lorsque son calque graphique est

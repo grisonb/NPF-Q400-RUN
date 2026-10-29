@@ -587,7 +587,7 @@ function enableSimulationMode() {
      * La position est capturée AVANT de couper le watch GPS afin que l'utilisateur
      * n'ait plus à repositionner manuellement l'avion pour commencer un scénario.
      */
-    const knownGpsBeforeSimulation = getKnownGpsLatLngForCentering();
+    const knownGpsBeforeSimulation = getKnownGpsLatLngRaw();   /* RUN v1.11 : simulation non concernée par la zone */
 
     simulationWasLiveGpsActiveBeforeSimulation = (localStorage.getItem('liveGpsActive') === 'true') || !!watchId;
     isSimulationMode = true;
@@ -1347,22 +1347,18 @@ function updateCalculatorData() {
         const bingo2Airport = getAirportByOaci(NPF_RUN_BINGO2_OACI);
         CALCULATOR_DATA.distBingo1Feu = bingo1Airport ? Math.round(calculateDistanceInNm(bingo1Airport.lat, bingo1Airport.lon, feuLat, feuLon)) : 0;
         CALCULATOR_DATA.distBingo2Feu = bingo2Airport ? Math.round(calculateDistanceInNm(bingo2Airport.lat, bingo2Airport.lon, feuLat, feuLon)) : 0;
-        /* RUN v1.9 — chemin choisi (src/155 ; v1.10 : présélection de la plus courte) : distance totale du chemin, arrondie,
-         * pour le temps, la rotation (pélic FMEP), le transit (base FMEP) et le BINGO 1 FMEP. BINGO 2 FMEE : ligne droite. */
-        const chemin = typeof getNpfCheminementSelectionne === 'function' ? getNpfCheminementSelectionne() : null;
-        CALCULATOR_DATA.cheminNom = chemin ? chemin.nom : '';
-        if (chemin) {
-            const distanceChemin = Math.round(chemin.totalNm);
-            if (selectedPelicanOACI === 'FMEP') CALCULATOR_DATA.distPelicFeu = distanceChemin;
-            if (selectedBaseOACI === 'FMEP') CALCULATOR_DATA.distBaseFeu = distanceChemin;
-            CALCULATOR_DATA.distBingo1Feu = distanceChemin;
+        /* RUN v1.11 — traits modifiés (WP, src/205) : FMEP -> FEU pour la rotation (pélic FMEP), le transit (base FMEP) et le
+         * BINGO 1 FMEP ; AVION -> FEU pour le temps de transit avion. BINGO 2 FMEE : ligne droite. */
+        const traitFmepNm = typeof getNpfTraitFeuDistanceNm === 'function' ? getNpfTraitFeuDistanceNm('fmep') : null;
+        if (Number.isFinite(traitFmepNm)) {
+            const d = Math.round(traitFmepNm);
+            if (selectedPelicanOACI === 'FMEP') CALCULATOR_DATA.distPelicFeu = d;
+            if (selectedBaseOACI === 'FMEP') CALCULATOR_DATA.distBaseFeu = d;
+            CALCULATOR_DATA.distBingo1Feu = d;
         }
+        const traitAvionNm = typeof getNpfTraitFeuDistanceNm === 'function' ? getNpfTraitFeuDistanceNm('avion') : null;
+        if (Number.isFinite(traitAvionNm)) CALCULATOR_DATA.distGpsFeu = Math.round(traitAvionNm);
     }
-    /* RUN v1.9 — nom du chemin choisi dans le calculateur */
-    document.querySelectorAll('.npf-chemin-choisi').forEach(element => {
-        element.textContent = !currentCommune ? '--'
-            : (CALCULATOR_DATA.cheminNom ? `${CALCULATOR_DATA.cheminNom} (${CALCULATOR_DATA.distBingo1Feu} Nm)` : 'Ligne droite FMEP');
-    });
     if (typeof masterRecalculate === 'function') { masterRecalculate(); }
 }
 

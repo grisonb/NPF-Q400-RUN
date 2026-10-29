@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.10';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.11';
 
 
 /*

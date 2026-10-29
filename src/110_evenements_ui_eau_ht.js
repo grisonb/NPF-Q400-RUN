@@ -124,9 +124,7 @@ function setupEventListeners() {
 
     if (roadOverlayButton) {
         refreshRoadOverlayButtonState();
-        roadOverlayButton.addEventListener('click', (event) => {
-            /* RUN v1.9 — la pastille des cheminements (src/155) ne touche pas au Calque Routier. */
-            if (typeof isNpfCheminementsToggleTarget === 'function' && isNpfCheminementsToggleTarget(event)) return;
+        roadOverlayButton.addEventListener('click', () => {
             toggleRoadOverlayLayer();
         });
     }
@@ -1364,8 +1362,18 @@ function updateCommuneGpsRouteDisplay() {
         userLatLng.lat, userLatLng.lng, target.lat, target.lon,
         { startDeclination: getNpfMagneticDeclination(userLatLng.lat, userLatLng.lng) }
     );
-    const distance = courseToTarget ? courseToTarget.distanceNm : NaN;
-    const magneticBearing = courseToTarget ? courseToTarget.magneticBearing : NaN;
+    let distance = courseToTarget ? courseToTarget.distanceNm : NaN;
+    let magneticBearing = courseToTarget ? courseToTarget.magneticBearing : NaN;
+    /* RUN v1.11 — trait AVION -> FEU modifié (src/205) : cap vers le 1er WP, distance et temps jusqu'au feu par les WP. */
+    const traitAvion = !target.airport && (!automaticFirePelicTarget || automaticFirePelicTarget.kind === 'fire') && typeof getNpfTraitFeuAvionPremierWp === 'function' ? getNpfTraitFeuAvionPremierWp() : null;
+    if (traitAvion) {
+        const versWp = computeNpfConstantMagneticCourse(userLatLng.lat, userLatLng.lng, traitAvion.lat, traitAvion.lon,
+            { startDeclination: getNpfMagneticDeclination(userLatLng.lat, userLatLng.lng) });
+        if (versWp) {
+            distance = versWp.distanceNm + traitAvion.resteNm;
+            magneticBearing = versWp.magneticBearing;
+        }
+    }
 
     if (routeInfo) {
         routeInfo.textContent = `${formatRouteDegrees(magneticBearing)} / ${Math.round(distance)} Nm / ${formatGpsEtaMinutes(distance)}`;

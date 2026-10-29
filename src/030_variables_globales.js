@@ -1399,6 +1399,23 @@ const UPDATE_REMINDER_INTERVAL_MS = 5 * 24 * 60 * 60 * 1000;
 let startupGpsAutoCenteredWithRealPosition = false;
 let startupGpsStoredCenterAppliedAt = 0;
 let isSimulationMode = false;
+/* RUN v1.11 — « La Réunion toujours à l'écran » : une position GPS RÉELLE ne sert au centrage et au suivi de la carte
+ * que dans cette zone (rectangle de l'île — côte de 20,87° S à 21,39° S et de 55,21° E à 55,84° E — élargi d'environ
+ * 15 NM). Hors zone (par exemple en métropole), la carte reste sur l'île (NPF_RUN_VUE_ILE). Simulation : non concernée. */
+const NPF_RUN_ZONE_GPS = Object.freeze({ latMin: -21.64, latMax: -20.62, lonMin: 54.94, lonMax: 56.11 });
+const NPF_RUN_VUE_ILE = Object.freeze({ lat: -21.11, lon: 55.53, zoom: 10 });
+function isNpfRunPositionCentrable(lat, lng) {
+    if (isSimulationMode) return true;
+    const y = Number(lat);
+    const x = Number(lng);
+    return Number.isFinite(y) && Number.isFinite(x)
+        && y >= NPF_RUN_ZONE_GPS.latMin && y <= NPF_RUN_ZONE_GPS.latMax && x >= NPF_RUN_ZONE_GPS.lonMin && x <= NPF_RUN_ZONE_GPS.lonMax;
+}
+function centerNpfRunMapOnIle() {
+    if (typeof map === 'undefined' || !map) return false;
+    map.setView([NPF_RUN_VUE_ILE.lat, NPF_RUN_VUE_ILE.lon], NPF_RUN_VUE_ILE.zoom, { animate: false });
+    return true;
+}
 let simulationMapClickHandler = null;
 let simulationSuppressNextClickUntil = 0;
 let simulationActionPopup = null;

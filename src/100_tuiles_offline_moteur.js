@@ -2753,8 +2753,6 @@ function clearCurrentSelection(options = {}) {
     lftwRouteLayer.clearLayers();
     drawPermanentAirportMarkers();
     currentCommune = null;
-    /* RUN v1.9 — plus de feu : tracés de fond des cheminements (si affichés) (src/155). */
-    if (typeof refreshNpfCheminementsFond === 'function') refreshNpfCheminementsFond();
     drawFireHistoryMarkers();
     localStorage.removeItem('currentCommune');
     updateBaseLabels();
