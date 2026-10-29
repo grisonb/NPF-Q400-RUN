@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.12';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.13';
 
 
 /*
@@ -39703,20 +39703,53 @@ async function getNpfRunCiblesOldBytes() {
     return total;
 }
 
-/* Toucher un point : la fenêtre est ouverte DANS le geste (iPad), puis le PDF y est chargé depuis le cache. */
+/* RUN v1.13 — visionneuse DANS l'app (même lecteur que FdS / GAAR : iframe sur le PDF en blob, lecteur PDF natif de
+ * Safari ; mêmes styles « briefing-doc-viewer », éléments à part). Plus de window.open : sur l'iPad (app installée),
+ * la fenêtre ouverte puis dirigée vers un blob du cache restait sans PDF (v1.12). */
+let npfRunCibleVisionneuseUrl = null;
+
+function closeNpfRunCibleVisionneuse() {
+    const modal = document.getElementById('npf-cible-viewer-modal');
+    const frame = document.getElementById('npf-cible-viewer-frame');
+    if (frame) frame.src = 'about:blank';
+    if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+    if (npfRunCibleVisionneuseUrl) {
+        const url = npfRunCibleVisionneuseUrl;
+        npfRunCibleVisionneuseUrl = null;
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 1000);
+    }
+}
+
+function showNpfRunCibleVisionneuse(cible, blob) {
+    const modal = document.getElementById('npf-cible-viewer-modal');
+    const frame = document.getElementById('npf-cible-viewer-frame');
+    if (!modal || !frame) throw new Error('visionneuse PDF indisponible');
+    closeNpfRunCibleVisionneuse();
+    try { map?.closePopup?.(); } catch (_) {}
+    npfRunCibleVisionneuseUrl = URL.createObjectURL(blob);
+    const titre = document.getElementById('npf-cible-viewer-title');
+    if (titre) titre.textContent = cible.nom;
+    frame.title = `PDF ${cible.nom}`;
+    frame.src = `${npfRunCibleVisionneuseUrl}#page=1&view=FitH&zoom=page-width&pagemode=none`;
+    modal.dataset.cible = cible.id;
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    return true;
+}
+
+/* Toucher un point : le PDF depuis le cache, dans la visionneuse de l'app (en ligne comme hors ligne). */
 async function openNpfRunCible(id) {
     const cible = NPF_RUN_CIBLES.find(c => c.id === id);
     if (!cible) return false;
-    const fenetre = window.open('', '_blank');
     const blob = await getNpfRunCiblePdfBlob(cible);
     if (blob) {
-        const url = URL.createObjectURL(blob);
-        if (fenetre) fenetre.location.href = url;
-        else window.location.href = url;
-        setTimeout(() => URL.revokeObjectURL(url), 120000);
-        return true;
+        try {
+            return showNpfRunCibleVisionneuse(cible, blob);
+        } catch (error) {
+            alert(`Ouverture du PDF de ${cible.nom} impossible : ${error.message || error}`);
+            return false;
+        }
     }
-    try { if (fenetre && !fenetre.closed) fenetre.close(); } catch (_) {}
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         alert(`Le PDF de ${cible.nom} n'est pas encore sur cet iPad.\n\nPas de connexion : télécharge les PDF des cibles depuis Gestion des Cartes dès que possible (code Doc FdF).`);
         return false;
@@ -39731,9 +39764,26 @@ async function openNpfRunCible(id) {
 }
 
 /* ---------- dessin : point rouge, nom à 1 NM et moins ---------- */
+/* RUN v1.13 — panneau à part, AU-DESSUS des surfaces tactiles des terrains et de la SIA (z660 / z665) et sous le
+ * trafic (z675 et plus) : aucune autre couche ne peut prendre le toucher d'une cible. */
+const NPF_RUN_CIBLES_PANE = 'npfCiblesPane';
+const NPF_RUN_CIBLES_ZONE_RAYON_PX = 26;   // zone de toucher : 52 px de diamètre (44 px au moins)
+let npfRunCiblesRenderer = null;
+
+function getNpfRunCiblesRenderer() {
+    if (!map.getPane(NPF_RUN_CIBLES_PANE)) {
+        map.createPane(NPF_RUN_CIBLES_PANE);
+        const pane = map.getPane(NPF_RUN_CIBLES_PANE);
+        if (pane) pane.style.zIndex = '668';
+    }
+    if (!npfRunCiblesRenderer && L.svg) npfRunCiblesRenderer = L.svg({ padding: 0.35, pane: NPF_RUN_CIBLES_PANE });
+    return npfRunCiblesRenderer;
+}
+
 function refreshNpfRunCibles() {
     if (typeof map === 'undefined' || !map || typeof L === 'undefined') return;
     if (!npfRunCiblesLayer) npfRunCiblesLayer = L.layerGroup();
+    const renderer = getNpfRunCiblesRenderer() || undefined;
     npfRunCiblesLayer.clearLayers();
     let echelle = Infinity;
     try { echelle = getCurrentNpfScaleNm(); } catch (_) {}
@@ -39741,11 +39791,11 @@ function refreshNpfRunCibles() {
     NPF_RUN_CIBLES.forEach(cible => {
         const point = L.circleMarker([cible.lat, cible.lon], {
             radius: 7, color: '#ffffff', weight: 2.5, fillColor: '#e10600', fillOpacity: 1,
-            className: 'npf-cible-point', bubblingMouseEvents: false
+            className: 'npf-cible-point', bubblingMouseEvents: false, pane: NPF_RUN_CIBLES_PANE, renderer
         });
         point._npfCible = cible.id;
         /* zone de toucher plus large que le point (doigt) */
-        const zone = L.circleMarker([cible.lat, cible.lon], { radius: 18, stroke: false, fillOpacity: 0, className: 'npf-cible-zone', bubblingMouseEvents: false });
+        const zone = L.circleMarker([cible.lat, cible.lon], { radius: NPF_RUN_CIBLES_ZONE_RAYON_PX, stroke: false, fillColor: '#e10600', fillOpacity: 0, className: 'npf-cible-zone', bubblingMouseEvents: false, pane: NPF_RUN_CIBLES_PANE, renderer });
         const toucher = event => {
             try { event?.originalEvent?.stopPropagation?.(); } catch (_) {}
             openNpfRunCible(cible.id);
@@ -39773,7 +39823,20 @@ function refreshNpfRunCibles() {
     if (essai < 240) setTimeout(() => attendreCarteCibles(essai + 1), 500);
 })();
 
+(function brancherVisionneuseCibles() {
+    const brancher = () => {
+        document.getElementById('npf-cible-viewer-close')?.addEventListener('click', closeNpfRunCibleVisionneuse);
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            if (document.getElementById('npf-cible-viewer-modal')?.style.display === 'flex') closeNpfRunCibleVisionneuse();
+        });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', brancher, { once: true });
+    else brancher();
+})();
+
 window.openNpfRunCible = openNpfRunCible;
+window.closeNpfRunCibleVisionneuse = closeNpfRunCibleVisionneuse;
 /* ========================================================================== 
    v16.66 — noms + fréquence opérationnelle des terrains à partir de 2 NM
    ========================================================================== */
