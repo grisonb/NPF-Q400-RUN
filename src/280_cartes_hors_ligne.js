@@ -3408,6 +3408,24 @@ const NPF_SERVER_MAPS = {
         ancienne: 'les anciens PDF Doc FdF',
         confirmation: 'Doc FdF Réduite / Carte Fréquences, 23 Mo : utilise le Wi-Fi. Tous les PDF Doc FdF de l\'iPad (Carte Fréquences comprise) seront remplacés, seulement une fois les nouveaux complets et vérifiés.',
         besoinOctets: 160 * 1024 * 1024
+    },
+    /* RUN v1.12 — PDF des 4 cibles (src/215) : sous-dossier du dossier Doc FdF du VPS (/doc-fdf/cibles-run/), donc
+     * protégé par le MÊME code (règle Caddy existante sur /doc-fdf/*, aucun changement de Caddy) ; jamais dans l'app
+     * publiée. Rangés dans le cache NPF_RUN_CIBLES_CACHE (jamais effacé par la Doc FdF ni par le service hors ligne). */
+    'cibles': {
+        type: 'fichier',
+        protege: true,
+        nom: 'PDF des cibles',
+        manifestUrl: new URL('../doc-fdf/cibles-run/manifest.json', NPF_SERVER_BASE_URL).toString(),
+        format: 'npf-q400-fichier-v1',
+        stateKey: 'npfServerSectionDownloadV1:cibles',
+        logKey: 'npfServerSectionLogV1:cibles',
+        ui: 'cibles-download',
+        libelle: 'Télécharger les PDF des cibles (4 PDF, 4 Mo)',
+        libelleReprise: 'Reprendre le téléchargement des PDF des cibles',
+        ancienne: 'les anciens PDF des cibles',
+        confirmation: 'PDF des 4 cibles (CILAOS 1, CILAOS 2, MAFATE 1, MAFATE 2), 4 Mo, protégés par le code Doc FdF. Les PDF déjà sur l\'iPad seront remplacés seulement une fois les nouveaux complets et vérifiés.',
+        besoinOctets: 20 * 1024 * 1024
     }
 };
 const NPF_SERVER_MAP_STATE_KEY = 'npfServerMapDownloadV1';
@@ -4179,6 +4197,9 @@ async function installNpfServerDocFdf(cfg, manifest, blob) {
 }
 
 async function getNpfServerSectionOldBytes(cfg) {
+    if (cfg.id === 'cibles') {
+        try { return await getNpfRunCiblesOldBytes(); } catch (_) { return 0; }
+    }
     if (cfg.id === 'doc-fdf') {
         try {
             const records = await getInstalledAirportPdfRecords();
@@ -4405,7 +4426,7 @@ async function runNpfServerMapDownload(mapId) {
             const blob = await assembleNpfServerSectionFile(cfg, manifest);
             const detail = cfg.id === 'doc-fdf'
                 ? await installNpfServerDocFdf(cfg, manifest, blob)
-                : await installNpfServerRoadOverlay(cfg, manifest, blob);
+                : (cfg.id === 'cibles' ? await installNpfServerCibles(cfg, manifest, blob) : await installNpfServerRoadOverlay(cfg, manifest, blob));
             await clearNpfServerSectionChunks(cfg);
             const minutes = Math.max(1, Math.round((Date.now() - Number(state.startedAt || Date.now())) / 60000));
             addNpfServerMapLogEvent(`terminé et vérifié : ${detail}, ${minutes} min depuis le début`, {}, cfg);

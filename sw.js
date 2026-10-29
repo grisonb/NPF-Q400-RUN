@@ -1,6 +1,6 @@
-/* NPF-Q400-RUN v1.11 (29/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
-const SW_VERSION = 'sw-run-v1-11';
-const APP_VERSION = 'v1.11';
+/* NPF-Q400-RUN v1.12 (29/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
+const SW_VERSION = 'sw-run-v1-12';
+const APP_VERSION = 'v1.12';
 const SIA_DATA_REVISION = 'sia-2026-10-29-v02-g15-run';
 const SIA_DATA_URL = './sia.js';
 /*
@@ -633,12 +633,16 @@ const NPF_RUN_DATA_DIRS = ['carte/', 'calque-routier/'];
 /* RUN v1.7 — fichier NOTAM de FMEP / FMEE (service VPS npf-run-sofia-notams) : passage direct au réseau, jamais copié
  * dans le cache du SW (même valeur que src/030 NPF_RUN_NOTAMS_URL). */
 const NPF_RUN_NOTAMS_DIR_URL = 'https://vps-3c305ff2.vps.ovh.net/npf-q400-run-notams/';
+/* RUN v1.12 — PDF des cibles (sous-dossier protégé du dossier Doc FdF, section « cibles » de src/280) : passage direct
+ * au réseau (code transmis tel quel), jamais copiés dans le cache du SW ; l'app les range elle-même dans son cache. */
+const NPF_RUN_CIBLES_DIR_URL = 'https://vps-3c305ff2.vps.ovh.net/doc-fdf/cibles-run/';
 
 function isNpfMapServerRequest(url) {
     try {
         const href = new URL(url).href;
         return NPF_RUN_DATA_DIRS.some(dir => href.startsWith(NPF_RUN_DONNEES_BASE_URL + dir))
-            || href.startsWith(NPF_RUN_NOTAMS_DIR_URL);
+            || href.startsWith(NPF_RUN_NOTAMS_DIR_URL)
+            || href.startsWith(NPF_RUN_CIBLES_DIR_URL);
     } catch (_) {
         return false;
     }

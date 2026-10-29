@@ -1,4 +1,4 @@
-/* NPF_STYLE_BUILD_VERSION: v1.11 */
+/* NPF_STYLE_BUILD_VERSION: v1.12 */
 /* v14.83 — nettoyage des références techniques et limitation des cartouches routiers. */
 /* v14.81 — recherche phonétique nationale élargie aux fragments sur deux lettres. */
 /* v14.80 — Brive conservé uniquement sous LFSL. */
@@ -18955,4 +18955,26 @@ body.npf-calculator-modal-open {
 .npf-vol-libre-source {
     font-size: 11px;
     color: #555;
+}
+
+/* RUN v1.12 — cibles (src/215) : point rouge dessiné par l'app, nom à 1 NM et moins, bloc Gestion des Cartes */
+.leaflet-tooltip.npf-cible-label {
+    background: #ffffff;
+    color: #b00000;
+    border: 1.5px solid #e10600;
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-weight: 800;
+    font-size: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.leaflet-tooltip.npf-cible-label::before {
+    display: none;
+}
+.npf-cibles-download-block {
+    margin: 8px 0 12px;
+}
+.npf-cibles-titre {
+    margin: 6px 0;
+    font-size: 14px;
 }
