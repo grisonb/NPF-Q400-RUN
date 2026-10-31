@@ -1,6 +1,6 @@
-/* NPF-Q400-RUN v1.13 (29/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
-const SW_VERSION = 'sw-run-v1-13';
-const APP_VERSION = 'v1.13';
+/* NPF-Q400-RUN v1.14 (31/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
+const SW_VERSION = 'sw-run-v1-14';
+const APP_VERSION = 'v1.14';
 const SIA_DATA_REVISION = 'sia-2026-10-29-v02-g15-run';
 const SIA_DATA_URL = './sia.js';
 /*
@@ -63,7 +63,10 @@ const CORE_APP_SHELL_URLS = [
     './leaflet.css',
     './leaflet.min.js',
     './suncalc.js',
-    './jszip.min.js'
+    './jszip.min.js',
+    /* RUN v1.14 — lecteur PDF des cibles (src/215) : dans l'app, disponible hors ligne */
+    './pdfjs/pdf.min.mjs',
+    './pdfjs/pdf.worker.min.mjs'
 ];
 
 const APP_DATA_URLS = [
@@ -298,7 +301,7 @@ self.addEventListener('install', event => {
             let stored = await copyExistingCachedAsset(url, cache);
             if (!stored) {
                 try {
-                    const response = await fetchForAppShell(url, 8000, 1);
+                    const response = await fetchForAppShell(url, /\/pdfjs\//.test(url) ? 30000 : 8000, 1);
                     if (response && response.ok) {
                         await cache.put(url, response.clone());
                         stored = true;
@@ -790,7 +793,9 @@ function isAppShellRequest(request) {
             'leaflet.css',
             'leaflet.min.js',
             'suncalc.js',
-            'jszip.min.js'
+            'jszip.min.js',
+            'pdf.min.mjs',
+            'pdf.worker.min.mjs'
         ].includes(getRequestFilename(request));
     } catch (_) {
         return false;
@@ -808,7 +813,9 @@ function isCriticalAppShellRequest(request) {
             'leaflet.css',
             'leaflet.min.js',
             'suncalc.js',
-            'jszip.min.js'
+            'jszip.min.js',
+            'pdf.min.mjs',
+            'pdf.worker.min.mjs'
         ].includes(getRequestFilename(request));
     } catch (_) {
         return false;

@@ -1,0 +1,2 @@
+PDF.js (paquet pdfjs-dist 4.10.38, version legacy), Mozilla — licence Apache-2.0 (fichier LICENSE).
+Fichiers repris tels quels depuis legacy/build/ ; lecteur des PDF des cibles (src/215) uniquement.

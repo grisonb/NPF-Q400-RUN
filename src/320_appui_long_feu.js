@@ -122,10 +122,33 @@ function openMapLongPressActionPopup(latlng, zoneCandidates = [], options = {}) 
     container.appendChild(wpButton);
     container.appendChild(zoneButton);
 
+    /* RUN v1.14 — WP perso (src/216) : repère personnel, à ce point ou aux coordonnées saisies. */
+    const wpPersoButton = document.createElement('button');
+    wpPersoButton.type = 'button';
+    wpPersoButton.className = 'npf-map-longpress-action npf-map-longpress-wp-perso';
+    wpPersoButton.textContent = 'WP perso';
+    wpPersoButton.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        try { map.closePopup(); } catch (_) {}
+        ouvrirNpfWpPersoCreation(latlng);
+    });
+    container.appendChild(wpPersoButton);
+
+    /* RUN v1.14 — menu plus haut (4 boutons) : la carte se décale pour qu'il reste sous les bandeaux du haut. */
+    let hautOccupe = 0;
+    ['bingo-map-display', 'commune-info-display', 'npf-waypoint-route-banner'].forEach(id => {
+        const element = document.getElementById(id);
+        if (!element || window.getComputedStyle(element).display === 'none') return;
+        hautOccupe = Math.max(hautOccupe, element.getBoundingClientRect().bottom);
+    });
+    const carteHaut = map.getContainer().getBoundingClientRect().top;
+
     const actionPopup = L.popup({
         maxWidth: 280,
         closeButton: true,
         autoPan: !centerGpsFollowActive,
+        autoPanPaddingTopLeft: L.point(5, Math.max(5, Math.round(hautOccupe - carteHaut) + 10)),
         keepInView: !centerGpsFollowActive
     })
         .setLatLng(latlng)

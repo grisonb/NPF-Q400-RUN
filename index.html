@@ -50,10 +50,11 @@
         })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <script>/* RUN v1.14 — app installée sur l'écran d'accueil (voir la barre du haut, style.css). */ try { if (window.navigator.standalone === true) document.documentElement.classList.add('npf-app-installee'); } catch (_) {}</script>
     <title>NPF-Q400-RUN</title>
     <link rel="stylesheet" href="leaflet.css">
-    <link rel="stylesheet" href="style.css?appv=v1.13">
-    <link rel="manifest" href="manifest.json?appv=v1.13">
+    <link rel="stylesheet" href="style.css?appv=v1.14">
+    <link rel="manifest" href="manifest.json?appv=v1.14">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png?appv=run3">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png?appv=v13.92">
     <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?appv=run3">
@@ -107,11 +108,12 @@
     </style>
 </head>
 <body>
+    <div id="npf-fond-barre-haut" aria-hidden="true"></div>
 
     <div id="app-boot-screen" aria-live="polite">
         <div class="boot-card">
             <div>NPF-Q400-RUN — démarrage…</div>
-            <div class="boot-version">NPF-Q400-RUN v1.13 (La Réunion)</div>
+            <div class="boot-version">NPF-Q400-RUN v1.14 (La Réunion)</div>
         </div>
     </div>
     <script>
@@ -489,7 +491,7 @@
         </div>
     </div>
 
-    <!-- RUN v1.13 — visionneuse des PDF des cibles (src/215) : même lecteur que FdS / GAAR (iframe), éléments à part. -->
+    <!-- RUN v1.14 — visionneuse des PDF des cibles (src/215) : lecteur PDF.js intégré (largeur de la fenêtre, zoom à deux doigts). -->
     <div id="npf-cible-viewer-modal"
          class="briefing-doc-viewer-modal npf-cible-viewer-modal"
          style="display: none;"
@@ -504,11 +506,9 @@
                         class="briefing-doc-viewer-close">Fermer</button>
             </div>
         </div>
-        <div class="briefing-doc-viewer-stage">
-            <iframe id="npf-cible-viewer-frame"
-                    class="briefing-doc-viewer-frame"
-                    title="PDF de la cible"
-                    src="about:blank"></iframe>
+        <div id="npf-cible-pdf-scroll" class="npf-cible-pdf-scroll">
+            <div id="npf-cible-pdf-etat" class="npf-cible-pdf-etat" aria-live="polite"></div>
+            <div id="npf-cible-pdf-pages" class="npf-cible-pdf-pages"></div>
         </div>
     </div>
 
@@ -734,7 +734,7 @@
             };
         } catch (_) {}
 
-        const APP_VERSION = 'v1.13';
+        const APP_VERSION = 'v1.14';
         const SERVICE_WORKER_URL = `./sw.js?appv=${encodeURIComponent(APP_VERSION)}`;
         const APP_VERSION_STORAGE_KEY = 'appVersion';
         const SW_CONTROLLER_RELOAD_GUARD_KEY = 'swControllerReloadGuard';
@@ -1577,7 +1577,7 @@
     <script src="suncalc.js"></script>
     <script src="jszip.min.js"></script>
     <script src="sia.js?siav=sia-2026-10-29-v02-g15-run"></script>
-    <script src="script.js?appv=v1.13"></script>
+    <script src="script.js?appv=v1.14"></script>
     
     <div id="fuel-split-modal" class="fuel-split-modal" style="display: none;">
         <div class="fuel-split-modal-content">
