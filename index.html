@@ -53,8 +53,8 @@
     <script>/* RUN v1.14 — app installée sur l'écran d'accueil (voir la barre du haut, style.css). */ try { if (window.navigator.standalone === true) document.documentElement.classList.add('npf-app-installee'); } catch (_) {}</script>
     <title>NPF-Q400-RUN</title>
     <link rel="stylesheet" href="leaflet.css">
-    <link rel="stylesheet" href="style.css?appv=v1.14">
-    <link rel="manifest" href="manifest.json?appv=v1.14">
+    <link rel="stylesheet" href="style.css?appv=v1.15">
+    <link rel="manifest" href="manifest.json?appv=v1.15">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png?appv=run3">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png?appv=v13.92">
     <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?appv=run3">
@@ -113,7 +113,7 @@
     <div id="app-boot-screen" aria-live="polite">
         <div class="boot-card">
             <div>NPF-Q400-RUN — démarrage…</div>
-            <div class="boot-version">NPF-Q400-RUN v1.14 (La Réunion)</div>
+            <div class="boot-version">NPF-Q400-RUN v1.15 (La Réunion)</div>
         </div>
     </div>
     <script>
@@ -734,7 +734,7 @@
             };
         } catch (_) {}
 
-        const APP_VERSION = 'v1.14';
+        const APP_VERSION = 'v1.15';
         const SERVICE_WORKER_URL = `./sw.js?appv=${encodeURIComponent(APP_VERSION)}`;
         const APP_VERSION_STORAGE_KEY = 'appVersion';
         const SW_CONTROLLER_RELOAD_GUARD_KEY = 'swControllerReloadGuard';
@@ -1577,7 +1577,7 @@
     <script src="suncalc.js"></script>
     <script src="jszip.min.js"></script>
     <script src="sia.js?siav=sia-2026-10-29-v02-g15-run"></script>
-    <script src="script.js?appv=v1.14"></script>
+    <script src="script.js?appv=v1.15"></script>
     
     <div id="fuel-split-modal" class="fuel-split-modal" style="display: none;">
         <div class="fuel-split-modal-content">

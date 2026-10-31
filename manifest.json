@@ -2,7 +2,7 @@
     "name": "NPF-Q400-RUN",
     "short_name": "NPF RUN",
     "id": "./index.html?run=1",
-    "start_url": "./index.html?appv=v1.14",
+    "start_url": "./index.html?appv=v1.15",
     "scope": "./",
     "display": "standalone",
     "background_color": "#0b1220",

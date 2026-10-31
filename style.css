@@ -1,4 +1,4 @@
-/* NPF_STYLE_BUILD_VERSION: v1.14 */
+/* NPF_STYLE_BUILD_VERSION: v1.15 */
 /* v14.83 — nettoyage des références techniques et limitation des cartouches routiers. */
 /* v14.81 — recherche phonétique nationale élargie aux fragments sur deux lettres. */
 /* v14.80 — Brive conservé uniquement sous LFSL. */
@@ -19066,3 +19066,4 @@ body.npf-calculator-modal-open {
 .npf-wp-perso-aide { font-size: 13px; font-weight: normal; color: #486581; margin-top: 4px; }
 .npf-wp-perso-erreur { min-height: 20px; margin-bottom: 10px; font-size: 15px; font-weight: bold; color: #c1121f; }
 .npf-wp-perso-glisser { display: block; width: 100%; margin-bottom: 12px; }
+.npf-wp-perso-position { display: block; width: 100%; margin-bottom: 12px; }

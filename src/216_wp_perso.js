@@ -4,6 +4,7 @@
    - création par l'appui long sur la carte (bouton « WP perso », src/320) : nom
      obligatoire, coordonnées du point touché modifiables ;
    - fiche : Renommer, Déplacer (glisser ou saisir), Supprimer, Direct to ;
+   - RUN v1.15 : bouton « Position actuelle » dans la saisie des coordonnées ;
    - Direct to : le WP entre dans la route du mode navigation (src/200), comme un
      terrain (cap, distance, temps à 200 kt, WP intermédiaires) ;
    - gardés dans le stockage de la RUN (clé npfWpPersoV1, préfixe npf-q400-run:).
@@ -250,6 +251,18 @@ function ouvrirNpfWpPersoFiche(id) {
 
 /* ---------- fenêtre de saisie ---------- */
 
+/* RUN v1.15 — position de l'avion (GPS, ou avion simulé en simulation). La position mémorisée à la fermeture de l'app
+ * (lastPosition.stored) sert à placer l'avion au démarrage mais n'est pas une position actuelle. */
+function getNpfWpPersoPositionAvion() {
+    const p = lastPosition;
+    if (!p) return null;
+    if (isSimulationMode ? p.simulation !== true : (p.simulation === true || p.stored === true)) return null;
+    const lat = Number(p.latitude);
+    const lon = Number(p.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon, ageMinutes: p.simulation === true ? 0 : Math.floor((Date.now() - Number(p.timestamp)) / 60000) };
+}
+
 /* options : titre, nom (texte ou null si pas de champ), lat, lon (null si pas de champ), glisser (bouton « Glisser sur la carte »).
  * Résultat : { nom, lat, lon }, 'glisser' ou null (Annuler). */
 function demanderNpfWpPerso(options) {
@@ -271,6 +284,7 @@ function demanderNpfWpPerso(options) {
                         <input id="npf-wp-perso-coord" type="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">
                         <div class="npf-wp-perso-aide"></div>
                     </label>
+                    <button type="button" id="npf-wp-perso-position" class="npf-wp-perso-btn npf-wp-perso-position">Position actuelle</button>
                     <button type="button" id="npf-wp-perso-glisser" class="npf-wp-perso-btn npf-wp-perso-glisser">Glisser sur la carte</button>
                     <div id="npf-wp-perso-erreur" class="npf-wp-perso-erreur" aria-live="polite"></div>
                     <div class="npf-confirm-actions">
@@ -284,11 +298,13 @@ function demanderNpfWpPerso(options) {
         const champCoord = fond.querySelector('#npf-wp-perso-coord');
         const erreur = fond.querySelector('#npf-wp-perso-erreur');
         const glisser = fond.querySelector('#npf-wp-perso-glisser');
+        const position = fond.querySelector('#npf-wp-perso-position');
         const coordInitiale = avecCoord ? formatNpfCoordonnees(options.lat, options.lon) : '';
         fond.querySelector('#npf-wp-perso-titre').textContent = options.titre;
         fond.querySelector('#npf-wp-perso-champ-nom').style.display = avecNom ? 'block' : 'none';
         fond.querySelector('#npf-wp-perso-champ-coord').style.display = avecCoord ? 'block' : 'none';
         fond.querySelector('.npf-wp-perso-aide').textContent = NPF_WP_PERSO_AIDE_COORD;
+        position.style.display = avecCoord ? 'block' : 'none';
         glisser.style.display = options.glisser ? 'block' : 'none';
         champNom.value = avecNom ? options.nom : '';
         champCoord.value = coordInitiale;
@@ -298,10 +314,17 @@ function demanderNpfWpPerso(options) {
             fond.querySelector('.npf-confirm-ok').onclick = null;
             fond.querySelector('.npf-confirm-cancel').onclick = null;
             glisser.onclick = null;
+            position.onclick = null;
             resolve(valeur);
         };
         fond.querySelector('.npf-confirm-cancel').onclick = () => fin(null);
         glisser.onclick = () => fin('glisser');
+        position.onclick = () => {
+            const avion = getNpfWpPersoPositionAvion();
+            if (!avion) { erreur.textContent = "Pas de position de l'avion disponible : coordonnées inchangées."; return; }
+            champCoord.value = formatNpfCoordonnees(avion.lat, avion.lon);
+            erreur.textContent = avion.ageMinutes >= 1 ? `Dernière position GPS reçue il y a ${avion.ageMinutes} min.` : '';
+        };
         fond.querySelector('.npf-confirm-ok').onclick = async () => {
             const nom = champNom.value.trim();
             if (avecNom && !nom) { erreur.textContent = 'Le nom est obligatoire.'; return; }
