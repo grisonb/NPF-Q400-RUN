@@ -556,8 +556,8 @@ function selectAirportDestination(airport) {
     const normalized = getAirportByOaci(airport?.oaci);
     if (!normalized) return false;
 
-    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le ×. */
-    if (currentCommune) clearCurrentSelection({ preserveMapView: true });
+    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le × ; FMEP (le pélicandrome) le garde, avec ses WP. */
+    if (currentCommune && normalized.oaci !== NPF_TRAITS_FEU_OACI) clearCurrentSelection({ preserveMapView: true });
 
     /* Un GoTo aéroport/PÉLIC demandé manuellement suspend la navette automatique. */
     suspendNpfFirePelicAutoCycle();

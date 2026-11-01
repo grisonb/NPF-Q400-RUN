@@ -819,8 +819,8 @@ function ensureNpfWaypointGps() {
 function activateNpfWaypointGoto(id) {
     const wp = getNpfWaypointById(id);
     if (!wp) return false;
-    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le ×. */
-    if (currentCommune) clearCurrentSelection({ preserveMapView: true });
+    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le × ; FMEP (le pélicandrome) le garde, avec ses WP. */
+    if (currentCommune && !(wp.source === 'airport' && wp.sourceRef === NPF_TRAITS_FEU_OACI)) clearCurrentSelection({ preserveMapView: true });
     suspendNpfFirePelicAutoCycle();
     npfWaypointRouteState.activeId = wp.id;
     npfWaypointRouteState.gotoActive = true;

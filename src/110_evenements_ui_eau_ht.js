@@ -843,7 +843,7 @@ function displayResults(results) {
             const li = document.createElement('li');
             li.className = 'search-result-airport';
             li.innerHTML = `<span class="search-result-airport-oaci">${escapeHtml(airport.oaci)}</span><span class="search-result-airport-name">${escapeHtml(airport.name)}</span>`;
-            li.title = `Tracer la route GPS vers ${airport.oaci} — le feu en cours est fermé`;
+            li.title = `Tracer la route GPS vers ${airport.oaci} — le feu en cours est fermé, sauf pour FMEP`;
             li.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();

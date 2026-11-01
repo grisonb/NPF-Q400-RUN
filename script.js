@@ -18200,7 +18200,7 @@ function displayResults(results) {
             const li = document.createElement('li');
             li.className = 'search-result-airport';
             li.innerHTML = `<span class="search-result-airport-oaci">${escapeHtml(airport.oaci)}</span><span class="search-result-airport-name">${escapeHtml(airport.name)}</span>`;
-            li.title = `Tracer la route GPS vers ${airport.oaci} — le feu en cours est fermé`;
+            li.title = `Tracer la route GPS vers ${airport.oaci} — le feu en cours est fermé, sauf pour FMEP`;
             li.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -30897,8 +30897,8 @@ function selectAirportDestination(airport) {
     const normalized = getAirportByOaci(airport?.oaci);
     if (!normalized) return false;
 
-    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le ×. */
-    if (currentCommune) clearCurrentSelection({ preserveMapView: true });
+    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le × ; FMEP (le pélicandrome) le garde, avec ses WP. */
+    if (currentCommune && normalized.oaci !== NPF_TRAITS_FEU_OACI) clearCurrentSelection({ preserveMapView: true });
 
     /* Un GoTo aéroport/PÉLIC demandé manuellement suspend la navette automatique. */
     suspendNpfFirePelicAutoCycle();
@@ -36553,8 +36553,8 @@ function ensureNpfWaypointGps() {
 function activateNpfWaypointGoto(id) {
     const wp = getNpfWaypointById(id);
     if (!wp) return false;
-    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le ×. */
-    if (currentCommune) clearCurrentSelection({ preserveMapView: true });
+    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le × ; FMEP (le pélicandrome) le garde, avec ses WP. */
+    if (currentCommune && !(wp.source === 'airport' && wp.sourceRef === NPF_TRAITS_FEU_OACI)) clearCurrentSelection({ preserveMapView: true });
     suspendNpfFirePelicAutoCycle();
     npfWaypointRouteState.activeId = wp.id;
     npfWaypointRouteState.gotoActive = true;
