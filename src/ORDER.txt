@@ -25,6 +25,8 @@
 210_pistes_notam_trace.js
 215_cibles.js
 216_wp_perso.js
+217_adresse.js
+218_frequence_volcan.js
 220_frequences_marqueurs_terrains.js
 230_calques_departements.js
 240_donnees_departements_embarquees.js

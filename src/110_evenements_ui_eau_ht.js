@@ -843,7 +843,7 @@ function displayResults(results) {
             const li = document.createElement('li');
             li.className = 'search-result-airport';
             li.innerHTML = `<span class="search-result-airport-oaci">${escapeHtml(airport.oaci)}</span><span class="search-result-airport-name">${escapeHtml(airport.name)}</span>`;
-            li.title = `Tracer la route GPS vers ${airport.oaci} — sans modifier le feu ni le pélicandrome`;
+            li.title = `Tracer la route GPS vers ${airport.oaci} — le feu en cours est fermé`;
             li.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -900,6 +900,8 @@ function displayResults(results) {
             resultsList.style.display = 'none';
         }
     }
+    /* RUN v1.16 — dernière ligne : chercher le texte tapé comme adresse postale (src/217). */
+    if (typeof ajouterNpfAdresseAuxResultats === 'function') ajouterNpfAdresseAuxResultats(resultsList);
 }
 
 

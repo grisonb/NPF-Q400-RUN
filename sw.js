@@ -1,6 +1,6 @@
-/* NPF-Q400-RUN v1.15 (31/10/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
-const SW_VERSION = 'sw-run-v1-15';
-const APP_VERSION = 'v1.15';
+/* NPF-Q400-RUN v1.16 (01/11/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
+const SW_VERSION = 'sw-run-v1-16';
+const APP_VERSION = 'v1.16';
 const SIA_DATA_REVISION = 'sia-2026-10-29-v02-g15-run';
 const SIA_DATA_URL = './sia.js';
 /*
@@ -580,6 +580,11 @@ self.addEventListener('fetch', event => {
     // Sans respondWith, le navigateur effectue sa requête réseau normalement et
     // script.js gère les erreurs dans le bandeau du lecteur.
     if (isBriefingDocsNasRequest(request.url) || isBriefingDocsSourceRequest(request.url) || isGlobalLinkNasRequest(request.url)) {
+        return;
+    }
+
+    // RUN v1.16 — recherche d'adresse (src/217) : passage direct au réseau, jamais copiée dans le cache.
+    if (request.url.startsWith('https://data.geopf.fr/geocodage/')) {
         return;
     }
 

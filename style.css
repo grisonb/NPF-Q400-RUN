@@ -1,4 +1,4 @@
-/* NPF_STYLE_BUILD_VERSION: v1.15 */
+/* NPF_STYLE_BUILD_VERSION: v1.16 */
 /* v14.83 — nettoyage des références techniques et limitation des cartouches routiers. */
 /* v14.81 — recherche phonétique nationale élargie aux fragments sur deux lettres. */
 /* v14.80 — Brive conservé uniquement sous LFSL. */
@@ -19067,3 +19067,17 @@ body.npf-calculator-modal-open {
 .npf-wp-perso-erreur { min-height: 20px; margin-bottom: 10px; font-size: 15px; font-weight: bold; color: #c1121f; }
 .npf-wp-perso-glisser { display: block; width: 100%; margin-bottom: 12px; }
 .npf-wp-perso-position { display: block; width: 100%; margin-bottom: 12px; }
+
+/* ==========================================================================
+   RUN v1.16 — RECHERCHE D'ADRESSE (src/217) ET FRÉQUENCE VOLCAN (src/218)
+   ========================================================================== */
+#results-list li.search-result-adresse { position: sticky; bottom: 0; background: #e9f5ff; color: #005a9c; font-weight: bold; }
+#results-list li.search-result-adresse-message { color: #486581; cursor: default; }
+#results-list li.search-result-adresse-message:hover { background: transparent; }
+.npf-adresse-popup { min-width: 230px; }
+.npf-adresse-nom { font-size: 15px; font-weight: bold; margin-bottom: 8px; }
+.npf-volcan-frequence { background: transparent; border: 0; pointer-events: none; }
+.npf-volcan-frequence span {
+    display: block; white-space: nowrap; font: bold 15px Arial, sans-serif; color: #003a70;
+    text-shadow: -1.5px 0 #fff, 1.5px 0 #fff, 0 -1.5px #fff, 0 1.5px #fff, -1px -1px #fff, 1px 1px #fff, -1px 1px #fff, 1px -1px #fff;
+}

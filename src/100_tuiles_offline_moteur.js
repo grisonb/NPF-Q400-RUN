@@ -2753,6 +2753,8 @@ function clearCurrentSelection(options = {}) {
     lftwRouteLayer.clearLayers();
     drawPermanentAirportMarkers();
     currentCommune = null;
+    /* RUN v1.16 — les WP des traits AVION / FMEP -> FEU partent avec le feu (src/205). */
+    if (typeof effacerNpfTraitsFeu === 'function') effacerNpfTraitsFeu();
     drawFireHistoryMarkers();
     localStorage.removeItem('currentCommune');
     updateBaseLabels();

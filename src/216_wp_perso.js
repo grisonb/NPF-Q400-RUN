@@ -351,8 +351,8 @@ async function confirmerNpfWpPersoDistance(lat, lon) {
 
 /* ---------- actions ---------- */
 
-async function ouvrirNpfWpPersoCreation(latlng) {
-    const r = await demanderNpfWpPerso({ titre: 'Nouveau WP perso', nom: '', lat: Number(latlng.lat), lon: Number(latlng.lng) });
+async function ouvrirNpfWpPersoCreation(latlng, nomInitial = '') {
+    const r = await demanderNpfWpPerso({ titre: 'Nouveau WP perso', nom: nomInitial.slice(0, NPF_WP_PERSO_NOM_MAX), lat: Number(latlng.lat), lon: Number(latlng.lng) });
     if (!r || r === 'glisser') return false;
     npfWpPersoListe.push({ id: `perso-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, nom: r.nom, lat: r.lat, lon: r.lon });
     garderNpfWpPerso();

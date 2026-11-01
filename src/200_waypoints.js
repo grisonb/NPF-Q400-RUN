@@ -819,6 +819,8 @@ function ensureNpfWaypointGps() {
 function activateNpfWaypointGoto(id) {
     const wp = getNpfWaypointById(id);
     if (!wp) return false;
+    /* RUN v1.16 — un goto vers un autre point ferme le feu, comme le ×. */
+    if (currentCommune) clearCurrentSelection({ preserveMapView: true });
     suspendNpfFirePelicAutoCycle();
     npfWaypointRouteState.activeId = wp.id;
     npfWaypointRouteState.gotoActive = true;

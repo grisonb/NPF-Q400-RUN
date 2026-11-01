@@ -34,6 +34,16 @@ function getNpfTraitsFeuKey(commune = (typeof currentCommune !== 'undefined' ? c
     return Number.isFinite(lat) && Number.isFinite(lon) ? `${lat.toFixed(5)}|${lon.toFixed(5)}` : '';
 }
 
+/* RUN v1.16 — feu désélectionné : plus aucune trace de ses WP (carte, poignée, mémoire). */
+function effacerNpfTraitsFeu() {
+    if (npfTraitsFeuMoveHandle) { try { npfTraitsFeuMoveHandle.remove(); } catch (_) {} npfTraitsFeuMoveHandle = null; }
+    clearNpfTraitsFeuMoveOutside();
+    npfTraitsFeuState = { feuKey: '', avion: [], fmep: [] };
+    try { localStorage.removeItem(NPF_TRAITS_FEU_KEY); } catch (_) {}
+    npfTraitsFeuMarkers = new Map();
+    try { npfTraitsFeuLayer?.clearLayers(); npfTraitsFeuLabelLayer?.clearLayers(); } catch (_) {}
+}
+
 function normalizeNpfTraitsFeuWaypoints(list) {
     return (Array.isArray(list) ? list : []).map((wp, index) => {
         const lat = Number(wp?.lat);
@@ -51,6 +61,11 @@ function restoreNpfTraitsFeu() {
             avion: normalizeNpfTraitsFeuWaypoints(raw?.avion),
             fmep: normalizeNpfTraitsFeuWaypoints(raw?.fmep)
         };
+        /* RUN v1.16 — WP laissés en mémoire par un feu fermé avec une version précédente. */
+        if (raw && !localStorage.getItem('currentCommune')) {
+            npfTraitsFeuState = { feuKey: '', avion: [], fmep: [] };
+            localStorage.removeItem(NPF_TRAITS_FEU_KEY);
+        }
     } catch (_) {
         npfTraitsFeuState = { feuKey: '', avion: [], fmep: [] };
     }
