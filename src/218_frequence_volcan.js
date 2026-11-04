@@ -1,28 +1,16 @@
 /* ==========================================================================
-   RUN v1.16 — FRÉQUENCE VOLCAN : inscription dessinée par l'app (pas dans les
-   tuiles), en mer au sud-est du Piton de la Fournaise. Le texte part vers le
-   sud-est de son point d'ancrage : il s'éloigne de la côte à toute échelle.
+   RUN v1.16 — FRÉQUENCE VOLCAN, dessinée par l'app (pas dans les tuiles), en mer au sud-est du Piton de la Fournaise.
+   RUN v1.17 — même présentation et mêmes échelles que les fréquences des terrains (nom puis fréquence, 2 NM et moins) :
+   dessin de src/220 (buildNpfOperationalLabelMarker), appelé par refreshAirportOperationalLabels. Emplacement : point en mer
+   le plus proche du sommet où l'étiquette (+ 8 px) ne recouvre que la mer à 2 NM, 1 NM et 0,5 NM (tests/pw_v117_volcan.js).
    ========================================================================== */
 
-const NPF_VOLCAN_FREQUENCE_TEXTE = 'VOLCAN : 122.30';
-const NPF_VOLCAN_FREQUENCE_POINT = Object.freeze({ lat: -21.40, lon: 55.88 });
-const NPF_VOLCAN_FREQUENCE_PANE = 'npfVolcanFrequencePane';
+const NPF_VOLCAN_FREQUENCE = Object.freeze({ nom: 'VOLCAN', valeur: '122.30', lat: -21.3125, lon: 55.8125 });
 
-(function attendreCarteVolcan(essai = 0) {
-    if (typeof map !== 'undefined' && map && typeof map.whenReady === 'function') {
-        map.whenReady(() => {
-            map.createPane(NPF_VOLCAN_FREQUENCE_PANE);
-            const pane = map.getPane(NPF_VOLCAN_FREQUENCE_PANE);
-            pane.style.zIndex = '640';
-            pane.style.pointerEvents = 'none';
-            L.marker([NPF_VOLCAN_FREQUENCE_POINT.lat, NPF_VOLCAN_FREQUENCE_POINT.lon], {
-                pane: NPF_VOLCAN_FREQUENCE_PANE,
-                interactive: false,
-                keyboard: false,
-                icon: L.divIcon({ className: 'npf-volcan-frequence', html: `<span>${NPF_VOLCAN_FREQUENCE_TEXTE}</span>`, iconSize: null, iconAnchor: [0, 0] })
-            }).addTo(map);
-        });
-        return;
-    }
-    if (essai < 240) setTimeout(() => attendreCarteVolcan(essai + 1), 500);
-})();
+function addNpfVolcanFrequencyLabel(bounds) {
+    const latlng = L.latLng(NPF_VOLCAN_FREQUENCE.lat, NPF_VOLCAN_FREQUENCE.lon);
+    if (!bounds.contains(latlng)) return;
+    const marker = buildNpfOperationalLabelMarker(latlng, NPF_VOLCAN_FREQUENCE.nom, { type: '', value: NPF_VOLCAN_FREQUENCE.valeur });
+    marker._npfVolcanFrequence = true;
+    marker.addTo(airportOperationalLabelLayer);
+}

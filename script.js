@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.16';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.17';
 
 
 /*
@@ -40672,33 +40672,21 @@ function choisirNpfAdresse(a) {
         .openOn(map);
 }
 /* ==========================================================================
-   RUN v1.16 — FRÉQUENCE VOLCAN : inscription dessinée par l'app (pas dans les
-   tuiles), en mer au sud-est du Piton de la Fournaise. Le texte part vers le
-   sud-est de son point d'ancrage : il s'éloigne de la côte à toute échelle.
+   RUN v1.16 — FRÉQUENCE VOLCAN, dessinée par l'app (pas dans les tuiles), en mer au sud-est du Piton de la Fournaise.
+   RUN v1.17 — même présentation et mêmes échelles que les fréquences des terrains (nom puis fréquence, 2 NM et moins) :
+   dessin de src/220 (buildNpfOperationalLabelMarker), appelé par refreshAirportOperationalLabels. Emplacement : point en mer
+   le plus proche du sommet où l'étiquette (+ 8 px) ne recouvre que la mer à 2 NM, 1 NM et 0,5 NM (tests/pw_v117_volcan.js).
    ========================================================================== */
 
-const NPF_VOLCAN_FREQUENCE_TEXTE = 'VOLCAN : 122.30';
-const NPF_VOLCAN_FREQUENCE_POINT = Object.freeze({ lat: -21.40, lon: 55.88 });
-const NPF_VOLCAN_FREQUENCE_PANE = 'npfVolcanFrequencePane';
+const NPF_VOLCAN_FREQUENCE = Object.freeze({ nom: 'VOLCAN', valeur: '122.30', lat: -21.3125, lon: 55.8125 });
 
-(function attendreCarteVolcan(essai = 0) {
-    if (typeof map !== 'undefined' && map && typeof map.whenReady === 'function') {
-        map.whenReady(() => {
-            map.createPane(NPF_VOLCAN_FREQUENCE_PANE);
-            const pane = map.getPane(NPF_VOLCAN_FREQUENCE_PANE);
-            pane.style.zIndex = '640';
-            pane.style.pointerEvents = 'none';
-            L.marker([NPF_VOLCAN_FREQUENCE_POINT.lat, NPF_VOLCAN_FREQUENCE_POINT.lon], {
-                pane: NPF_VOLCAN_FREQUENCE_PANE,
-                interactive: false,
-                keyboard: false,
-                icon: L.divIcon({ className: 'npf-volcan-frequence', html: `<span>${NPF_VOLCAN_FREQUENCE_TEXTE}</span>`, iconSize: null, iconAnchor: [0, 0] })
-            }).addTo(map);
-        });
-        return;
-    }
-    if (essai < 240) setTimeout(() => attendreCarteVolcan(essai + 1), 500);
-})();
+function addNpfVolcanFrequencyLabel(bounds) {
+    const latlng = L.latLng(NPF_VOLCAN_FREQUENCE.lat, NPF_VOLCAN_FREQUENCE.lon);
+    if (!bounds.contains(latlng)) return;
+    const marker = buildNpfOperationalLabelMarker(latlng, NPF_VOLCAN_FREQUENCE.nom, { type: '', value: NPF_VOLCAN_FREQUENCE.valeur });
+    marker._npfVolcanFrequence = true;
+    marker.addTo(airportOperationalLabelLayer);
+}
 /* ========================================================================== 
    v16.66 — noms + fréquence opérationnelle des terrains à partir de 2 NM
    ========================================================================== */
@@ -41520,6 +41508,32 @@ const NPF_AIRPORT_LABEL_A_GAUCHE = new Set(['FMEP']);
 /* RUN v1.8 — échelle maximale (NM) des étiquettes des bases ULM, hélistations et sites de vol libre (demande de Bastien). */
 const NPF_PETITS_TERRAINS_ETIQUETTE_MAX_NM = 1;
 
+/* RUN v1.17 — dessin d'une étiquette nom + fréquence(s), sorti tel quel de refreshAirportOperationalLabels pour servir aussi
+ * à la fréquence du volcan (src/218). freq : { type, value } ou { groups: [{ type, value }] } ; nom vide = pas de ligne nom. */
+function buildNpfOperationalLabelMarker(latlng, displayName, freq, aGauche = false) {
+    const frequencyHtml = freq
+        ? (
+            Array.isArray(freq.groups) && freq.groups.length
+                ? freq.groups.map(group =>
+                    `<span class="airport-operational-frequency">${group.type ? `${escapeHtml(group.type)} ` : ''}${escapeHtml(group.value)}</span>`
+                ).join('')
+                : `<span class="airport-operational-frequency">${freq.type ? `${escapeHtml(freq.type)} ` : ''}${escapeHtml(freq.value)}</span>`
+        )
+        : '';
+    const nameHtml = displayName ? `<span class="airport-operational-name">${escapeHtml(displayName)}</span>` : '';
+    return L.marker(latlng, {
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 1650,
+        icon: L.divIcon({
+            className: 'airport-operational-label-icon',
+            html: `<span class="airport-operational-label${aGauche ? ' airport-operational-label-gauche' : ''}">${nameHtml}${frequencyHtml}</span>`,
+            iconSize: [1, 1],
+            iconAnchor: [0, 0]
+        })
+    });
+}
+
 function refreshAirportOperationalLabels() {
     if (!map) return;
     if (!airportOperationalLabelLayer) airportOperationalLabelLayer = L.layerGroup().addTo(map);
@@ -41549,27 +41563,11 @@ function refreshAirportOperationalLabels() {
         const airportDisplayName = airport.volLibre
             ? `${airport.t === 'A' ? 'Atterro' : 'Déco'} ${airportName}`
             : (airportName ? `${airportName} (${airportCode})` : airportCode);
-        const frequencyHtml = freq
-            ? (
-                Array.isArray(freq.groups) && freq.groups.length
-                    ? freq.groups.map(group =>
-                        `<span class="airport-operational-frequency">${group.type ? `${escapeHtml(group.type)} ` : ''}${escapeHtml(group.value)}</span>`
-                    ).join('')
-                    : `<span class="airport-operational-frequency">${freq.type ? `${escapeHtml(freq.type)} ` : ''}${escapeHtml(freq.value)}</span>`
-            )
-            : '';
-        L.marker(latlng, {
-            interactive: false,
-            keyboard: false,
-            zIndexOffset: 1650,
-            icon: L.divIcon({
-                className: 'airport-operational-label-icon',
-                html: `<span class="airport-operational-label${NPF_AIRPORT_LABEL_A_GAUCHE.has(airportOaci) ? ' airport-operational-label-gauche' : ''}"><span class="airport-operational-name">${escapeHtml(airportDisplayName)}</span>${frequencyHtml}</span>`,
-                iconSize: [1, 1],
-                iconAnchor: [0, 0]
-            })
-        }).addTo(airportOperationalLabelLayer);
+        buildNpfOperationalLabelMarker(latlng, airportDisplayName, freq, NPF_AIRPORT_LABEL_A_GAUCHE.has(airportOaci))
+            .addTo(airportOperationalLabelLayer);
     });
+    /* RUN v1.17 — fréquence du volcan (src/218) : même dessin, mêmes échelles que les terrains. */
+    if (typeof addNpfVolcanFrequencyLabel === 'function') addNpfVolcanFrequencyLabel(bounds);
 
     /* v16.58 — les libellés terrain ne chargent jamais le gros jeu SIA.
      * Si le référentiel léger n'est pas encore en cache, il est récupéré en
