@@ -1,6 +1,6 @@
-/* NPF-Q400-RUN v1.17 (04/11/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
-const SW_VERSION = 'sw-run-v1-17';
-const APP_VERSION = 'v1.17';
+/* NPF-Q400-RUN v1.18 (08/11/2026 ; v1.0 = première livraison, base TEST v17.89). Chaque livraison suivante : +0.1. */
+const SW_VERSION = 'sw-run-v1-18';
+const APP_VERSION = 'v1.18';
 const SIA_DATA_REVISION = 'sia-2026-10-29-v02-g15-run';
 const SIA_DATA_URL = './sia.js';
 /*
