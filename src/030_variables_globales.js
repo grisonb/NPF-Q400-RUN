@@ -826,6 +826,8 @@ const DEFAULT_BASE_OACI = 'FMEP';
 /* RUN v1.7 — BINGO 1 toujours FMEP (seul pélicandrome), BINGO 2 toujours FMEE (dégagement) : src/290, src/150, src/270. */
 const NPF_RUN_BINGO1_OACI = 'FMEP';
 const NPF_RUN_BINGO2_OACI = 'FMEE';
+/* RUN v1.19 — terrains jamais pélicandromes (ni ajoutés comme PÉLIC à la main) : FIMP (Maurice, entraînement IFR). */
+const NPF_RUN_JAMAIS_PELIC = new Set(['FIMP']);
 let selectedBaseOACI = DEFAULT_BASE_OACI;
 let gaarCircuits = [];
 let isGaarMode = false;
@@ -1403,13 +1405,17 @@ let isSimulationMode = false;
  * que dans cette zone (rectangle de l'île — côte de 20,87° S à 21,39° S et de 55,21° E à 55,84° E — élargi d'environ
  * 15 NM). Hors zone (par exemple en métropole), la carte reste sur l'île (NPF_RUN_VUE_ILE). Simulation : non concernée. */
 const NPF_RUN_ZONE_GPS = Object.freeze({ latMin: -21.64, latMax: -20.62, lonMin: 54.94, lonMax: 56.11 });
+/* RUN v1.19 — MAURICE (entraînement IFR, carte RUN-7) : même règle dans une 2e zone = île et îlots (côte de 19,79° S, île aux
+ * Serpents, à 20,53° S et de 57,30° E à 57,81° E) élargie d'environ 10 NM. Entre les deux zones (en mer) : La Réunion à l'écran. */
+const NPF_RUN_ZONE_GPS_MAURICE = Object.freeze({ latMin: -20.70, latMax: -19.62, lonMin: 57.12, lonMax: 57.98 });
+let npfRunGpsAMaurice = false;   // dernière position GPS réelle dans la zone de Maurice (src/270)
 const NPF_RUN_VUE_ILE = Object.freeze({ lat: -21.11, lon: 55.53, zoom: 10 });
 function isNpfRunPositionCentrable(lat, lng) {
     if (isSimulationMode) return true;
     const y = Number(lat);
     const x = Number(lng);
-    return Number.isFinite(y) && Number.isFinite(x)
-        && y >= NPF_RUN_ZONE_GPS.latMin && y <= NPF_RUN_ZONE_GPS.latMax && x >= NPF_RUN_ZONE_GPS.lonMin && x <= NPF_RUN_ZONE_GPS.lonMax;
+    const dans = z => y >= z.latMin && y <= z.latMax && x >= z.lonMin && x <= z.lonMax;
+    return Number.isFinite(y) && Number.isFinite(x) && (dans(NPF_RUN_ZONE_GPS) || dans(NPF_RUN_ZONE_GPS_MAURICE));
 }
 function centerNpfRunMapOnIle() {
     if (typeof map === 'undefined' || !map) return false;

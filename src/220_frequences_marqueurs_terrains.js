@@ -30,6 +30,9 @@ const AIRPORT_OPERATIONAL_FREQUENCY_OVERRIDES = new Map([
     ['LFBD', Object.freeze({ type: 'TWR', value: '118.305', priority: 0, source: 'verified' })],
     ['LFCS', Object.freeze({ type: 'A/A', value: '119.005', priority: 2, source: 'verified' })]
 ]);
+/* RUN v1.19 — terrains hors SIA France : FIMP TWR 118.100 (OurAirports airport-frequencies.csv, 09/11/2026 ; APP 119.100 et
+ * ATIS 126.200 non affichées, comme pour FMEE). */
+const NPF_RUN_FREQUENCES_HORS_SIA = new Map([['FIMP', Object.freeze({ type: 'TWR', value: '118.100', source: 'OurAirports' })]]);
 
 /* v16.64 — référentiel local minimal des services opérationnels français.
  * Objectif : AFIS / A/A / INFO restent disponibles hors ligne et ne dépendent
@@ -792,6 +795,7 @@ function getAirportOperationalFrequency(oaci) {
      * d'AIXM 4.5 (fréquences TWR avec indicatif TOUR/TOWER). */
     const official = getSiaOfficialAirportOperationalFrequency(code);
     if (official) return official;
+    if (NPF_RUN_FREQUENCES_HORS_SIA.has(code)) return { ...NPF_RUN_FREQUENCES_HORS_SIA.get(code) };   // RUN v1.19 — FIMP
 
     /* Pour un terrain sans service opérationnel SIA exploitable, l'ancien
      * référentiel léger peut encore fournir une fréquence, mais JAMAIS un type. */

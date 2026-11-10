@@ -3332,7 +3332,10 @@ const NPF_SERVER_MAPS = {
         ancienne: 'l\'ancienne carte NPF-Q400',
         /* ‑ : trait d'union insécable, « NPF-Q400 » jamais coupé en fin de ligne.
          * v17.80 — taille réelle lue dans le manifeste (avant : « 2,7 Go » figé). */
-        confirmation: manifest => `Carte NPF‑Q400 ${manifest.versionCarte || ''} de ${formatNpfStorageSizeForUser(manifest.totalOctets)} (avec les noms des communes) : utilise le Wi-Fi. L'ancienne carte NPF‑Q400 sera d'abord effacée. Pas de carte hors ligne pendant le téléchargement.`,
+        confirmation: manifest => getNpfCarteSuperposee(manifest)
+            /* RUN v1.19 — carte qui contient toute la carte installée (RUN-6 -> RUN-7) : rien n'est effacé avant la fin. */
+            ? `Carte de ${formatNpfStorageSizeForUser(manifest.totalOctets)} : utilise le Wi-Fi. Carte NPF‑Q400 ${manifest.versionCarte || ''} (La Réunion et Maurice). La carte actuelle (${getNpfCarteSuperposee(manifest)}) reste utilisable pendant le téléchargement ; elle n'est remplacée qu'à la fin, après vérification. Si le téléchargement s'arrête, elle reste en place et le téléchargement reprend plus tard.`
+            : `Carte NPF‑Q400 ${manifest.versionCarte || ''} de ${formatNpfStorageSizeForUser(manifest.totalOctets)} (avec les noms des communes) : utilise le Wi-Fi. L'ancienne carte NPF‑Q400 sera d'abord effacée. Pas de carte hors ligne pendant le téléchargement.`,
         estAncienGroupe: name => isNpfOfflinePackSelection([name])
     },
     /* RUN : sections OACI 1/500 000, OACI et Doc FdF sans objet à La Réunion : gardées dans le code, boutons
@@ -4226,6 +4229,19 @@ async function estimateNpfServerMapFreeBytes() {
 
 /* --- Déroulé commun ------------------------------------------------------------ */
 
+/* RUN v1.19 — CARTE « SUPERPOSÉE » (RUN-6 -> RUN-7) : le manifeste annonce « superpose » = il contient TOUTES les tuiles de la
+ * carte qu'il remplace (remplace.versionCarte), mêmes noms de tuiles. Si c'est la carte installée (même groupe, même base), le
+ * téléchargement complet n'efface RIEN avant : les tuiles sont écrites par-dessus, la carte installée reste affichée et utilisable
+ * pendant tout le téléchargement ; une coupure la laisse en place (reprise au morceau en cours) ; la carte n'est déclarée
+ * installée dans sa nouvelle version qu'à la fin, après la vérification des nombres de tuiles. Retour : version installée, ou ''. */
+function getNpfCarteSuperposee(manifest, cfg = getNpfServerSection('npf-q400')) {
+    if (!cfg || cfg.id !== 'npf-q400' || !manifest || manifest.superpose !== true) return '';
+    const ancienne = manifest.remplace && manifest.remplace.versionCarte;
+    const pack = getInstalledMapPacksSafe().find(p => p && getOfflinePackGroupName(p.name) === cfg.groupName);
+    if (!ancienne || !pack || pack.versionCarte !== ancienne || pack.dbName !== getOfflineMapDatabaseNameForGroup(cfg.groupName)) return '';
+    return ancienne;
+}
+
 async function runNpfServerMapDownload(mapId) {
     const cfg = getNpfServerSection(mapId);
     if (!cfg) return;
@@ -4337,6 +4353,9 @@ async function runNpfServerMapDownload(mapId) {
 
         if (!state) {
             const previousOffline = mapSourceMode === 'offline' || !!offlineTilesMode;
+            /* RUN v1.19 — carte superposée : la carte installée n'est ni effacée ni retirée (voir getNpfCarteSuperposee). */
+            const superposee = cfg.type === 'tuiles' ? getNpfCarteSuperposee(manifest, cfg) : '';
+            const nomsPresents = superposee && cfg.avecNoms ? await doesNpfIndexedDatabaseExist(NPF_CALQUE_NOMS_DB_NAME) !== false : true;
             writeNpfJsonStorage(cfg.logKey, {
                 mapId, version: APP_VERSION, startedAt: Date.now(),
                 versionCarte: manifest.versionCarte || manifest.versionContenu,
@@ -4354,7 +4373,10 @@ async function runNpfServerMapDownload(mapId) {
             /* v17.67 — DIAG : « taille inconnue » quand une ancienne version existe sans taille connue. */
             let oldUnknown = false;
             let needed = 0;
-            if (cfg.type === 'tuiles') {
+            if (cfg.type === 'tuiles' && superposee && nomsPresents) {
+                addNpfServerMapLogEvent(`superposition : ${manifest.versionCarte || '?'} contient toute la carte ${superposee} installée ; rien n'est effacé, ${superposee} reste utilisable pendant le téléchargement`, {}, cfg);
+                needed = Math.max(0, Math.round((Number(manifest.totalOctets) - (Number(getInstalledMapPacksSafe().find(p => p && getOfflinePackGroupName(p.name) === cfg.groupName)?.sizeBytes) || 0)) * NPF_SERVER_MAP_SPACE_FACTOR + NPF_SERVER_MAP_SPACE_MARGIN_BYTES));
+            } else if (cfg.type === 'tuiles') {
                 oldGroups = await findNpfServerSectionOldGroups(cfg);
                 oldGroups.gardes.forEach(item => addNpfServerMapLogEvent(`gardée (pas effacée) : ${item.groupName} — ${item.raison}`, {}, cfg));
                 oldGroups.aEffacer.filter(item => item.controle).forEach(item => addNpfServerMapLogEvent(`contrôle du contenu : ${item.groupName} — ${item.controle} — ancienne version reconnue`, {}, cfg));
@@ -4378,7 +4400,9 @@ async function runNpfServerMapDownload(mapId) {
                 return;
             }
 
-            if (cfg.type === 'tuiles') {
+            if (cfg.type === 'tuiles' && superposee && nomsPresents) {
+                showNpfServerMapProgress(`Téléchargement de la carte ${manifest.versionCarte || ''} : la carte ${superposee} reste utilisable.`, 0, {}, cfg);
+            } else if (cfg.type === 'tuiles') {
                 showNpfServerMapProgress(`Effacement de ${cfg.ancienne}…`, 0, {}, cfg);
                 const deletions = await deleteNpfServerSectionOldGroups(cfg, oldGroups.aEffacer);
                 const statusText = { deleted: 'effacée', blocked: 'bloquée par Safari (effacée au prochain lancement)', timeout: 'effacement trop long (effacée au prochain lancement)' };
@@ -4398,7 +4422,8 @@ async function runNpfServerMapDownload(mapId) {
                 versionCarte: manifest.versionCarte || manifest.versionContenu,
                 total: manifest.morceaux.length, totalOctets: Number(manifest.totalOctets),
                 totalTuiles: Number(manifest.totalTuiles) || 0, totalTuilesNoms: Number(manifest.totalTuilesNoms) || 0, next: 0, doneOctets: 0,
-                dbName: targetDbName, previousOffline, startedAt: Date.now()
+                dbName: targetDbName, previousOffline, startedAt: Date.now(),
+                superpose: !!(superposee && nomsPresents)
             };
             writeNpfServerMapState(state, cfg);
         } else {
@@ -4450,13 +4475,17 @@ async function runNpfServerMapDownload(mapId) {
         if (cfg.avecNoms && countNoms !== attendusNoms) {
             addNpfServerMapLogEvent(`vérification ÉCHOUÉE : ${countNoms === null ? 'comptage impossible' : countNoms} tuiles de noms au lieu de ${attendusNoms}`, {}, cfg);
             writeNpfServerMapState(null, cfg);
-            showNpfServerMapProgress(`Vérification échouée (noms des communes : ${countNoms === null ? 'comptage impossible' : `${countNoms} tuiles au lieu de ${attendusNoms}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
+            showNpfServerMapProgress(state.superpose
+                ? `Vérification échouée (noms des communes : ${countNoms === null ? 'comptage impossible' : `${countNoms} tuiles au lieu de ${attendusNoms}`}). La carte installée reste en place : appuie de nouveau sur « ${cfg.libelle} ».`
+                : `Vérification échouée (noms des communes : ${countNoms === null ? 'comptage impossible' : `${countNoms} tuiles au lieu de ${attendusNoms}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
             return;
         }
         if (count !== Number(manifest.totalTuiles)) {
             addNpfServerMapLogEvent(`vérification ÉCHOUÉE : ${count === null ? 'comptage impossible' : count} tuiles au lieu de ${manifest.totalTuiles}`, {}, cfg);
             writeNpfServerMapState(null, cfg);
-            showNpfServerMapProgress(`Vérification échouée (${count === null ? 'comptage impossible' : `${count} tuiles au lieu de ${manifest.totalTuiles}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
+            showNpfServerMapProgress(state.superpose
+                ? `Vérification échouée (${count === null ? 'comptage impossible' : `${count} tuiles au lieu de ${manifest.totalTuiles}`}). La carte installée reste en place : appuie de nouveau sur « ${cfg.libelle} ».`
+                : `Vérification échouée (${count === null ? 'comptage impossible' : `${count} tuiles au lieu de ${manifest.totalTuiles}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
             return;
         }
 

@@ -404,6 +404,7 @@ function getPelicCandidateAirports() {
      */
     const merged = [...pelicanAirports];
     otherAirports.forEach(ap => {
+        if (NPF_RUN_JAMAIS_PELIC.has(ap.oaci)) return;   // RUN v1.19 — FIMP jamais pélicandrome
         if (customPelicanAirports.has(ap.oaci) && !merged.some(existing => existing.oaci === ap.oaci)) {
             merged.push(ap);
         }
@@ -413,7 +414,7 @@ function getPelicCandidateAirports() {
 
 function isSelectablePelicanAirport(oaci) {
     const normalized = normalizeOaciCodeInput(oaci);
-    if (!normalized) return false;
+    if (!normalized || NPF_RUN_JAMAIS_PELIC.has(normalized)) return false;   // RUN v1.19 — FIMP jamais pélicandrome
     return pelicanAirports.some(ap => ap.oaci === normalized) || customPelicanAirports.has(normalized);
 }
 

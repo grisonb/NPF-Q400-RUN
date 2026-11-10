@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.18';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.19';
 
 
 /*
@@ -6719,6 +6719,8 @@ const DEFAULT_BASE_OACI = 'FMEP';
 /* RUN v1.7 — BINGO 1 toujours FMEP (seul pélicandrome), BINGO 2 toujours FMEE (dégagement) : src/290, src/150, src/270. */
 const NPF_RUN_BINGO1_OACI = 'FMEP';
 const NPF_RUN_BINGO2_OACI = 'FMEE';
+/* RUN v1.19 — terrains jamais pélicandromes (ni ajoutés comme PÉLIC à la main) : FIMP (Maurice, entraînement IFR). */
+const NPF_RUN_JAMAIS_PELIC = new Set(['FIMP']);
 let selectedBaseOACI = DEFAULT_BASE_OACI;
 let gaarCircuits = [];
 let isGaarMode = false;
@@ -7296,13 +7298,17 @@ let isSimulationMode = false;
  * que dans cette zone (rectangle de l'île — côte de 20,87° S à 21,39° S et de 55,21° E à 55,84° E — élargi d'environ
  * 15 NM). Hors zone (par exemple en métropole), la carte reste sur l'île (NPF_RUN_VUE_ILE). Simulation : non concernée. */
 const NPF_RUN_ZONE_GPS = Object.freeze({ latMin: -21.64, latMax: -20.62, lonMin: 54.94, lonMax: 56.11 });
+/* RUN v1.19 — MAURICE (entraînement IFR, carte RUN-7) : même règle dans une 2e zone = île et îlots (côte de 19,79° S, île aux
+ * Serpents, à 20,53° S et de 57,30° E à 57,81° E) élargie d'environ 10 NM. Entre les deux zones (en mer) : La Réunion à l'écran. */
+const NPF_RUN_ZONE_GPS_MAURICE = Object.freeze({ latMin: -20.70, latMax: -19.62, lonMin: 57.12, lonMax: 57.98 });
+let npfRunGpsAMaurice = false;   // dernière position GPS réelle dans la zone de Maurice (src/270)
 const NPF_RUN_VUE_ILE = Object.freeze({ lat: -21.11, lon: 55.53, zoom: 10 });
 function isNpfRunPositionCentrable(lat, lng) {
     if (isSimulationMode) return true;
     const y = Number(lat);
     const x = Number(lng);
-    return Number.isFinite(y) && Number.isFinite(x)
-        && y >= NPF_RUN_ZONE_GPS.latMin && y <= NPF_RUN_ZONE_GPS.latMax && x >= NPF_RUN_ZONE_GPS.lonMin && x <= NPF_RUN_ZONE_GPS.lonMax;
+    const dans = z => y >= z.latMin && y <= z.latMax && x >= z.lonMin && x <= z.lonMax;
+    return Number.isFinite(y) && Number.isFinite(x) && (dans(NPF_RUN_ZONE_GPS) || dans(NPF_RUN_ZONE_GPS_MAURICE));
 }
 function centerNpfRunMapOnIle() {
     if (typeof map === 'undefined' || !map) return false;
@@ -7399,6 +7405,10 @@ const waterPoints = [];
 const otherAirports = [
     /* RUN (v1.1) — FMEE Roland Garros, aérodrome ordinaire (ARP AIXM SIA 29/10/2026 : 20°53'23.7"S 55°30'58.8"E). */
     { oaci: "FMEE", name: "La Réunion-Roland Garros", lat: -20.88991667, lon: 55.51633333 },
+    /* RUN v1.19 — FIMP Sir Seewoosagur Ramgoolam (Plaisance, Maurice), terrain ordinaire comme FMEE (navigation, Go To, WP) ;
+     * JAMAIS pélicandrome, terrain le plus proche des feux, BINGO ni dégagement (src/030 NPF_RUN_JAMAIS_PELIC, BINGO fixes).
+     * Source : OurAirports (airports.csv, 09/11/2026) : ARP 20.430201 S 57.683601 E, altitude 186 ft. */
+    { oaci: "FIMP", name: "Sir Seewoosagur Ramgoolam (Plaisance)", lat: -20.430201, lon: 57.683601 },
     { oaci: "LFBC", name: "Cazaux", lat: 44.534, lon: -1.155 }, { oaci: "LFBH", name: "La Rochelle-Île de Ré", lat: 46.179, lon: -1.195 }, { oaci: "LFBF", name: "Toulouse-Francazal", lat: 43.546, lon: 1.365 }, { oaci: "LFBG", name: "Cognac-Châteaubernard", lat: 45.660, lon: -0.354 }, { oaci: "LFBI", name: "Poitiers-Biard", lat: 46.587, lon: 0.309 }, { oaci: "LFRT", name: "Saint-Brieuc-Armor", lat: 48.538, lon: -2.852 }, { oaci: "LFBO", name: "Toulouse-Blagnac", lat: 43.635, lon: 1.363 }, { oaci: "LFBT", name: "Tarbes-Lourdes-Pyrénées", lat: 43.185, lon: -0.003 }, { oaci: "LFBU", name: "Angoulême-Cognac", lat: 45.729, lon: 0.220 }, { oaci: "LFLA", name: "Auxerre-Branches", lat: 47.848, lon: 3.497 }, { oaci: "LFLC", name: "Clermont-Ferrand-Auvergne", lat: 45.786, lon: 3.169 }, { oaci: "LFLD", name: "Bourges", lat: 47.059, lon: 2.370 }, { oaci: "LFLL", name: "Lyon-Saint Exupéry", lat: 45.725, lon: 5.081 }, { oaci: "LFLN", name: "Saint-Yan", lat: 46.409, lon: 4.013 }, { oaci: "LFLS", name: "Grenoble-Isère", lat: 45.363, lon: 5.331 }, { oaci: "LFLV", name: "Vichy-Charmeil", lat: 46.167, lon: 3.403 }, { oaci: "LFLW", name: "Aurillac", lat: 44.887, lon: 2.418 }, { oaci: "LFLY", name: "Lyon-Bron", lat: 45.729, lon: 4.945 }, { oaci: "LFMC", name: "Le Luc-Le Cannet", lat: 43.385, lon: 6.368 }, { oaci: "LFMI", name: "Istres-Le Tubé", lat: 43.524, lon: 4.944 }, { oaci: "LFMN", name: "Nice-Côte d'Azur", lat: 43.665, lon: 7.215 }, { oaci: "LFMQ", name: "Le Castellet", lat: 43.253, lon: 5.786 }, { oaci: "LFMV", name: "Avignon-Provence", lat: 43.906, lon: 4.902 }, { oaci: "LFMY", name: "Salon-de-Provence", lat: 43.606, lon: 5.110 }, { oaci: "LFOA", name: "Avord", lat: 47.056, lon: 2.637 }, { oaci: "LFOC", name: "Châteaudun", lat: 48.058, lon: 1.378 }, { oaci: "LFOE", name: "Évreux-Fauville", lat: 49.028, lon: 1.218 }, { oaci: "LFOK", name: "Châlons-Vatry", lat: 48.776, lon: 4.185 }, { oaci: "LFOJ", name: "Orléans-Bricy", lat: 47.989, lon: 1.758 }, { oaci: "LFOP", name: "Rouen-Vallée de Seine", lat: 49.385, lon: 1.182 }, { oaci: "LFOQ", name: "Blois-Le Breuil", lat: 47.678, lon: 1.217 }, { oaci: "LFOR", name: "Chartres-Métropole", lat: 48.455, lon: 1.530 }, { oaci: "LFOT", name: "Tours-Val de Loire", lat: 47.432, lon: 0.722 }, { oaci: "LFOU", name: "Cholet-Le Pontreau", lat: 47.081, lon: -0.871 }, { oaci: "LFOV", name: "Laval-Entrammes", lat: 48.033, lon: -0.749 }, { oaci: "LFPB", name: "Paris-Le Bourget", lat: 48.969, lon: 2.441 }, { oaci: "LFPG", name: "Paris-Charles-de-Gaulle", lat: 49.009, lon: 2.547 }, { oaci: "LFPO", name: "Paris-Orly", lat: 48.723, lon: 2.379 }, { oaci: "LFPV", name: "Villacoublay-Vélizy", lat: 48.773, lon: 2.203 }, { oaci: "LFRB", name: "Brest-Bretagne", lat: 48.447, lon: -4.418 }, { oaci: "LFRC", name: "Cherbourg-Manche", lat: 49.650, lon: -1.478 }, { oaci: "LFRD", name: "Dinard-Pleurtuit-Saint-Malo", lat: 48.587, lon: -2.080 }, { oaci: "LFRE", name: "La Baule-Escoublac", lat: 47.289, lon: -2.348 }, { oaci: "LFRF", name: "Granville-Mont-Saint-Michel", lat: 48.887, lon: -1.564 }, { oaci: "LFRG", name: "Deauville-Normandie", lat: 49.365, lon: 0.154 }, { oaci: "LFRH", name: "Lorient-Lann-Bihoué", lat: 47.760, lon: -3.440 }, { oaci: "LFRI", name: "La Roche-sur-Yon-Les Ajoncs", lat: 46.702, lon: -1.381 }, { oaci: "LFRJ", name: "Landivisiau", lat: 48.527, lon: -4.156 }, { oaci: "LFRK", name: "Caen-Carpiquet", lat: 49.173, lon: -0.450 }, { oaci: "LFRL", name: "Lanvéoc-Poulmic", lat: 48.278, lon: -4.437 }, { oaci: "LFRM", name: "Le Mans-Arnage", lat: 47.949, lon: 0.203 }, { oaci: "LFRN", name: "Rennes-Saint-Jacques", lat: 48.070, lon: -1.732 }, { oaci: "LFRO", name: "Lannion", lat: 48.755, lon: -3.472 }, { oaci: "LFRQ", name: "Quimper-Pluguffan", lat: 47.975, lon: -4.167 }, { oaci: "LFRS", name: "Nantes-Atlantique", lat: 47.153, lon: -1.607 }, { oaci: "LFRU", name: "Morlaix-Ploujean", lat: 48.604, lon: -3.818 }, { oaci: "LFSD", name: "Dijon-Longvic", lat: 47.268, lon: 5.088 }, { oaci: "LFSH", name: "Haguenau", lat: 48.790, lon: 7.820 }, { oaci: "LFSO", name: "Nancy-Ochey", lat: 48.577, lon: 5.955 }, { oaci: "LFSX", name: "Luxeuil-Saint-Sauveur", lat: 47.779, lon: 6.353 }, { oaci: "LFQA", name: "Reims-Prunay", lat: 49.207, lon: 4.148 }, { oaci: "LFST", name: "Strasbourg-Entzheim", lat: 48.542, lon: 7.628 }, { oaci: "LFSM", name: "Montbéliard-Courcelles", lat: 47.4867, lon: 6.7915 }, { oaci: "LFYR", name: "Romorantin-Pruniers", lat: 47.352, lon: 1.670 }, { oaci: "LFPM", name: "Melun-Villaroche", lat: 48.604, lon: 2.676 }, { oaci: "LFOB", name: "Beauvais-Tillé", lat: 49.454, lon: 2.112 }, { oaci: "LFQN", name: "Saint-Omer-Wizernes", lat: 50.727, lon: 2.233 }, { oaci: "LFKS", name: "Solenzara", lat: 41.924, lon: 9.405 },
 
  // Terrains ajoutés depuis le PDF "piste revêtue > 1500 m"
@@ -8531,6 +8541,7 @@ const declaredPelicanRunwaysByOaci = (() => {
 const otherAirportRunwaysData = `
 FMEE|12/30|-20.885992|55.504639|-20.892100|55.534700|3200|45|ASP|0
 FMEE|14/32|-20.884217|55.504158|-20.894967|55.527147|2670|45|ASP|0
+FIMP|14/32|-20.423306|57.669189|-20.437149|57.697952|3370|45|ASP|0
 LFBC|06/24|44.528000|-1.138010|44.540001|-1.112730|2408|45|ASP|0
 LFBH|09/27|46.179699|-1.211010|46.178799|-1.181810|2255|45|ASP|0
 LFBF|12/30|43.549099|1.357200|43.542301|1.377410|1800|45|ASP|0
@@ -30745,6 +30756,7 @@ function getPelicCandidateAirports() {
      */
     const merged = [...pelicanAirports];
     otherAirports.forEach(ap => {
+        if (NPF_RUN_JAMAIS_PELIC.has(ap.oaci)) return;   // RUN v1.19 — FIMP jamais pélicandrome
         if (customPelicanAirports.has(ap.oaci) && !merged.some(existing => existing.oaci === ap.oaci)) {
             merged.push(ap);
         }
@@ -30754,7 +30766,7 @@ function getPelicCandidateAirports() {
 
 function isSelectablePelicanAirport(oaci) {
     const normalized = normalizeOaciCodeInput(oaci);
-    if (!normalized) return false;
+    if (!normalized || NPF_RUN_JAMAIS_PELIC.has(normalized)) return false;   // RUN v1.19 — FIMP jamais pélicandrome
     return pelicanAirports.some(ap => ap.oaci === normalized) || customPelicanAirports.has(normalized);
 }
 
@@ -40719,6 +40731,9 @@ const AIRPORT_OPERATIONAL_FREQUENCY_OVERRIDES = new Map([
     ['LFBD', Object.freeze({ type: 'TWR', value: '118.305', priority: 0, source: 'verified' })],
     ['LFCS', Object.freeze({ type: 'A/A', value: '119.005', priority: 2, source: 'verified' })]
 ]);
+/* RUN v1.19 — terrains hors SIA France : FIMP TWR 118.100 (OurAirports airport-frequencies.csv, 09/11/2026 ; APP 119.100 et
+ * ATIS 126.200 non affichées, comme pour FMEE). */
+const NPF_RUN_FREQUENCES_HORS_SIA = new Map([['FIMP', Object.freeze({ type: 'TWR', value: '118.100', source: 'OurAirports' })]]);
 
 /* v16.64 — référentiel local minimal des services opérationnels français.
  * Objectif : AFIS / A/A / INFO restent disponibles hors ligne et ne dépendent
@@ -41481,6 +41496,7 @@ function getAirportOperationalFrequency(oaci) {
      * d'AIXM 4.5 (fréquences TWR avec indicatif TOUR/TOWER). */
     const official = getSiaOfficialAirportOperationalFrequency(code);
     if (official) return official;
+    if (NPF_RUN_FREQUENCES_HORS_SIA.has(code)) return { ...NPF_RUN_FREQUENCES_HORS_SIA.get(code) };   // RUN v1.19 — FIMP
 
     /* Pour un terrain sans service opérationnel SIA exploitable, l'ancien
      * référentiel léger peut encore fournir une fréquence, mais JAMAIS un type. */
@@ -43175,6 +43191,7 @@ window.toggleWater = oaci => { waterAirports.has(oaci) ? waterAirports.delete(oa
 window.toggleCustomPelican = oaci => {
     const normalizedOaci = normalizeOaciCodeInput(oaci);
     if (!normalizedOaci || !getAirportByOaci(normalizedOaci)) return;
+    if (NPF_RUN_JAMAIS_PELIC.has(normalizedOaci)) return;   // RUN v1.19 — FIMP jamais pélicandrome
 
     if (customPelicanAirports.has(normalizedOaci)) {
         customPelicanAirports.delete(normalizedOaci);
@@ -45736,6 +45753,15 @@ function updateUserPosition(pos) {
         if (typeof updateDeroutementGpsStatus === 'function') {
             updateDeroutementGpsStatus(isSimulationPosition ? 'GPS simulation' : 'GPS actualisé');
         }
+    }
+
+    /* RUN v1.19 — position GPS réelle qui SORT de la zone de Maurice (mer entre les îles) avec le Suivi actif : La Réunion
+     * revient à l'écran (une fois). Hors de Maurice, la règle v1.11 est inchangée. */
+    if (!isSimulationPosition && typeof NPF_RUN_ZONE_GPS_MAURICE !== 'undefined') {
+        const zm = NPF_RUN_ZONE_GPS_MAURICE;
+        const aMaurice = latitude >= zm.latMin && latitude <= zm.latMax && longitude >= zm.lonMin && longitude <= zm.lonMax;
+        if (npfRunGpsAMaurice && !aMaurice && !isNpfRunPositionCentrable(latitude, longitude) && isCenterGpsFollowEffective()) centerNpfRunMapOnIle();
+        npfRunGpsAMaurice = aMaurice;
     }
 
     if (isCenterGpsFollowEffective()) {
@@ -50258,7 +50284,10 @@ const NPF_SERVER_MAPS = {
         ancienne: 'l\'ancienne carte NPF-Q400',
         /* ‑ : trait d'union insécable, « NPF-Q400 » jamais coupé en fin de ligne.
          * v17.80 — taille réelle lue dans le manifeste (avant : « 2,7 Go » figé). */
-        confirmation: manifest => `Carte NPF‑Q400 ${manifest.versionCarte || ''} de ${formatNpfStorageSizeForUser(manifest.totalOctets)} (avec les noms des communes) : utilise le Wi-Fi. L'ancienne carte NPF‑Q400 sera d'abord effacée. Pas de carte hors ligne pendant le téléchargement.`,
+        confirmation: manifest => getNpfCarteSuperposee(manifest)
+            /* RUN v1.19 — carte qui contient toute la carte installée (RUN-6 -> RUN-7) : rien n'est effacé avant la fin. */
+            ? `Carte de ${formatNpfStorageSizeForUser(manifest.totalOctets)} : utilise le Wi-Fi. Carte NPF‑Q400 ${manifest.versionCarte || ''} (La Réunion et Maurice). La carte actuelle (${getNpfCarteSuperposee(manifest)}) reste utilisable pendant le téléchargement ; elle n'est remplacée qu'à la fin, après vérification. Si le téléchargement s'arrête, elle reste en place et le téléchargement reprend plus tard.`
+            : `Carte NPF‑Q400 ${manifest.versionCarte || ''} de ${formatNpfStorageSizeForUser(manifest.totalOctets)} (avec les noms des communes) : utilise le Wi-Fi. L'ancienne carte NPF‑Q400 sera d'abord effacée. Pas de carte hors ligne pendant le téléchargement.`,
         estAncienGroupe: name => isNpfOfflinePackSelection([name])
     },
     /* RUN : sections OACI 1/500 000, OACI et Doc FdF sans objet à La Réunion : gardées dans le code, boutons
@@ -51152,6 +51181,19 @@ async function estimateNpfServerMapFreeBytes() {
 
 /* --- Déroulé commun ------------------------------------------------------------ */
 
+/* RUN v1.19 — CARTE « SUPERPOSÉE » (RUN-6 -> RUN-7) : le manifeste annonce « superpose » = il contient TOUTES les tuiles de la
+ * carte qu'il remplace (remplace.versionCarte), mêmes noms de tuiles. Si c'est la carte installée (même groupe, même base), le
+ * téléchargement complet n'efface RIEN avant : les tuiles sont écrites par-dessus, la carte installée reste affichée et utilisable
+ * pendant tout le téléchargement ; une coupure la laisse en place (reprise au morceau en cours) ; la carte n'est déclarée
+ * installée dans sa nouvelle version qu'à la fin, après la vérification des nombres de tuiles. Retour : version installée, ou ''. */
+function getNpfCarteSuperposee(manifest, cfg = getNpfServerSection('npf-q400')) {
+    if (!cfg || cfg.id !== 'npf-q400' || !manifest || manifest.superpose !== true) return '';
+    const ancienne = manifest.remplace && manifest.remplace.versionCarte;
+    const pack = getInstalledMapPacksSafe().find(p => p && getOfflinePackGroupName(p.name) === cfg.groupName);
+    if (!ancienne || !pack || pack.versionCarte !== ancienne || pack.dbName !== getOfflineMapDatabaseNameForGroup(cfg.groupName)) return '';
+    return ancienne;
+}
+
 async function runNpfServerMapDownload(mapId) {
     const cfg = getNpfServerSection(mapId);
     if (!cfg) return;
@@ -51263,6 +51305,9 @@ async function runNpfServerMapDownload(mapId) {
 
         if (!state) {
             const previousOffline = mapSourceMode === 'offline' || !!offlineTilesMode;
+            /* RUN v1.19 — carte superposée : la carte installée n'est ni effacée ni retirée (voir getNpfCarteSuperposee). */
+            const superposee = cfg.type === 'tuiles' ? getNpfCarteSuperposee(manifest, cfg) : '';
+            const nomsPresents = superposee && cfg.avecNoms ? await doesNpfIndexedDatabaseExist(NPF_CALQUE_NOMS_DB_NAME) !== false : true;
             writeNpfJsonStorage(cfg.logKey, {
                 mapId, version: APP_VERSION, startedAt: Date.now(),
                 versionCarte: manifest.versionCarte || manifest.versionContenu,
@@ -51280,7 +51325,10 @@ async function runNpfServerMapDownload(mapId) {
             /* v17.67 — DIAG : « taille inconnue » quand une ancienne version existe sans taille connue. */
             let oldUnknown = false;
             let needed = 0;
-            if (cfg.type === 'tuiles') {
+            if (cfg.type === 'tuiles' && superposee && nomsPresents) {
+                addNpfServerMapLogEvent(`superposition : ${manifest.versionCarte || '?'} contient toute la carte ${superposee} installée ; rien n'est effacé, ${superposee} reste utilisable pendant le téléchargement`, {}, cfg);
+                needed = Math.max(0, Math.round((Number(manifest.totalOctets) - (Number(getInstalledMapPacksSafe().find(p => p && getOfflinePackGroupName(p.name) === cfg.groupName)?.sizeBytes) || 0)) * NPF_SERVER_MAP_SPACE_FACTOR + NPF_SERVER_MAP_SPACE_MARGIN_BYTES));
+            } else if (cfg.type === 'tuiles') {
                 oldGroups = await findNpfServerSectionOldGroups(cfg);
                 oldGroups.gardes.forEach(item => addNpfServerMapLogEvent(`gardée (pas effacée) : ${item.groupName} — ${item.raison}`, {}, cfg));
                 oldGroups.aEffacer.filter(item => item.controle).forEach(item => addNpfServerMapLogEvent(`contrôle du contenu : ${item.groupName} — ${item.controle} — ancienne version reconnue`, {}, cfg));
@@ -51304,7 +51352,9 @@ async function runNpfServerMapDownload(mapId) {
                 return;
             }
 
-            if (cfg.type === 'tuiles') {
+            if (cfg.type === 'tuiles' && superposee && nomsPresents) {
+                showNpfServerMapProgress(`Téléchargement de la carte ${manifest.versionCarte || ''} : la carte ${superposee} reste utilisable.`, 0, {}, cfg);
+            } else if (cfg.type === 'tuiles') {
                 showNpfServerMapProgress(`Effacement de ${cfg.ancienne}…`, 0, {}, cfg);
                 const deletions = await deleteNpfServerSectionOldGroups(cfg, oldGroups.aEffacer);
                 const statusText = { deleted: 'effacée', blocked: 'bloquée par Safari (effacée au prochain lancement)', timeout: 'effacement trop long (effacée au prochain lancement)' };
@@ -51324,7 +51374,8 @@ async function runNpfServerMapDownload(mapId) {
                 versionCarte: manifest.versionCarte || manifest.versionContenu,
                 total: manifest.morceaux.length, totalOctets: Number(manifest.totalOctets),
                 totalTuiles: Number(manifest.totalTuiles) || 0, totalTuilesNoms: Number(manifest.totalTuilesNoms) || 0, next: 0, doneOctets: 0,
-                dbName: targetDbName, previousOffline, startedAt: Date.now()
+                dbName: targetDbName, previousOffline, startedAt: Date.now(),
+                superpose: !!(superposee && nomsPresents)
             };
             writeNpfServerMapState(state, cfg);
         } else {
@@ -51376,13 +51427,17 @@ async function runNpfServerMapDownload(mapId) {
         if (cfg.avecNoms && countNoms !== attendusNoms) {
             addNpfServerMapLogEvent(`vérification ÉCHOUÉE : ${countNoms === null ? 'comptage impossible' : countNoms} tuiles de noms au lieu de ${attendusNoms}`, {}, cfg);
             writeNpfServerMapState(null, cfg);
-            showNpfServerMapProgress(`Vérification échouée (noms des communes : ${countNoms === null ? 'comptage impossible' : `${countNoms} tuiles au lieu de ${attendusNoms}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
+            showNpfServerMapProgress(state.superpose
+                ? `Vérification échouée (noms des communes : ${countNoms === null ? 'comptage impossible' : `${countNoms} tuiles au lieu de ${attendusNoms}`}). La carte installée reste en place : appuie de nouveau sur « ${cfg.libelle} ».`
+                : `Vérification échouée (noms des communes : ${countNoms === null ? 'comptage impossible' : `${countNoms} tuiles au lieu de ${attendusNoms}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
             return;
         }
         if (count !== Number(manifest.totalTuiles)) {
             addNpfServerMapLogEvent(`vérification ÉCHOUÉE : ${count === null ? 'comptage impossible' : count} tuiles au lieu de ${manifest.totalTuiles}`, {}, cfg);
             writeNpfServerMapState(null, cfg);
-            showNpfServerMapProgress(`Vérification échouée (${count === null ? 'comptage impossible' : `${count} tuiles au lieu de ${manifest.totalTuiles}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
+            showNpfServerMapProgress(state.superpose
+                ? `Vérification échouée (${count === null ? 'comptage impossible' : `${count} tuiles au lieu de ${manifest.totalTuiles}`}). La carte installée reste en place : appuie de nouveau sur « ${cfg.libelle} ».`
+                : `Vérification échouée (${count === null ? 'comptage impossible' : `${count} tuiles au lieu de ${manifest.totalTuiles}`}). La carte n'est pas utilisable : appuie de nouveau sur « ${cfg.libelle} ».`, null, { advice: false, error: true }, cfg);
             return;
         }
 

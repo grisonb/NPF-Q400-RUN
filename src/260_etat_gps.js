@@ -156,6 +156,7 @@ window.toggleWater = oaci => { waterAirports.has(oaci) ? waterAirports.delete(oa
 window.toggleCustomPelican = oaci => {
     const normalizedOaci = normalizeOaciCodeInput(oaci);
     if (!normalizedOaci || !getAirportByOaci(normalizedOaci)) return;
+    if (NPF_RUN_JAMAIS_PELIC.has(normalizedOaci)) return;   // RUN v1.19 — FIMP jamais pélicandrome
 
     if (customPelicanAirports.has(normalizedOaci)) {
         customPelicanAirports.delete(normalizedOaci);

@@ -177,6 +177,15 @@ function updateUserPosition(pos) {
         }
     }
 
+    /* RUN v1.19 — position GPS réelle qui SORT de la zone de Maurice (mer entre les îles) avec le Suivi actif : La Réunion
+     * revient à l'écran (une fois). Hors de Maurice, la règle v1.11 est inchangée. */
+    if (!isSimulationPosition && typeof NPF_RUN_ZONE_GPS_MAURICE !== 'undefined') {
+        const zm = NPF_RUN_ZONE_GPS_MAURICE;
+        const aMaurice = latitude >= zm.latMin && latitude <= zm.latMax && longitude >= zm.lonMin && longitude <= zm.lonMax;
+        if (npfRunGpsAMaurice && !aMaurice && !isNpfRunPositionCentrable(latitude, longitude) && isCenterGpsFollowEffective()) centerNpfRunMapOnIle();
+        npfRunGpsAMaurice = aMaurice;
+    }
+
     if (isCenterGpsFollowEffective()) {
         const nowForFollow = Date.now();
         const recentManualMapGesture = (nowForFollow - centerGpsFollowLastUserGestureAt) < getCenterGpsFollowRecenterDelayMs();
