@@ -474,6 +474,8 @@ async function createSimulatedFireAtPoint(lat, lng) {
     localStorage.setItem('currentCommune', JSON.stringify(simulatedFire));
     displayCommuneDetails(simulatedFire, false);
     armNpfFirePelicAutoCycle('fire');
+    /* RUN v1.20 — feu de simulation noté avec le vol en cours pour l'export Carnet de vol (src/315). */
+    if (typeof noterNpfCarnetFeuSimulation === 'function') noterNpfCarnetFeuSimulation(simulatedFire);
 }
 
 function openSimulationActionPopup(latlng) {
