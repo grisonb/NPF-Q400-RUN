@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.20';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.21';
 
 
 /*
@@ -7211,6 +7211,11 @@ const DEFAULT_TRAFFIC_SETTINGS = Object.freeze({
     minAltitudeFt: 0,
     maxAltitudeFt: null,
     showAltitudeLabel: false,
+    /*
+     * v1.21 RUN — style des étiquettes trafics (SafeSky + Moyens Nationaux) :
+     * 'alt-immat' = étiquette historique inchangée ; 'alt' = altitude + tendance seules.
+     */
+    labelStyle: 'alt-immat',
     altitudeFilterMode: 'absolute',
     relativeAltitudeEnabled: false,
     relativeAltitudeBandFt: 1500,
@@ -23563,6 +23568,7 @@ function sanitizeTrafficSettings(candidate = {}) {
     }
 
     const showAltitudeLabel = asBool(candidate.showAltitudeLabel, fallback.showAltitudeLabel);
+    const labelStyle = candidate.labelStyle === 'alt' ? 'alt' : 'alt-immat';
 
     const validAltitudeModes = new Set(['absolute', 'around', 'ground']);
     let altitudeFilterMode = String(candidate.altitudeFilterMode || '').toLowerCase();
@@ -23630,6 +23636,7 @@ function sanitizeTrafficSettings(candidate = {}) {
         minAltitudeFt,
         maxAltitudeFt,
         showAltitudeLabel,
+        labelStyle,
         altitudeFilterMode,
         /*
          * Propriété conservée pour compatibilité avec d'anciens réglages ou
@@ -24829,6 +24836,20 @@ function ensureTrafficSettingsModal() {
 
                 <label class="traffic-settings-field traffic-settings-checkbox-field">
                     <div class="traffic-settings-check-row">
+                        <input id="traffic-label-style-alt-immat" type="radio" name="traffic-label-style" value="alt-immat">
+                        <em>Étiquettes Trafics Alt. + Immat.</em>
+                    </div>
+                </label>
+
+                <label class="traffic-settings-field traffic-settings-checkbox-field">
+                    <div class="traffic-settings-check-row">
+                        <input id="traffic-label-style-alt" type="radio" name="traffic-label-style" value="alt">
+                        <em>Étiquettes Trafics Alt.</em>
+                    </div>
+                </label>
+
+                <label class="traffic-settings-field traffic-settings-checkbox-field">
+                    <div class="traffic-settings-check-row">
                         <input id="traffic-drone-advisories-input" type="checkbox">
                         <em>Zones d’activité drone déclarées</em>
                     </div>
@@ -24991,6 +25012,7 @@ function ensureTrafficSettingsModal() {
         modal.querySelector('#traffic-relative-band-input').value = String(defaults.relativeAltitudeBandFt);
         modal.querySelector('#traffic-ground-band-input').value = String(defaults.groundToAboveBandFt);
         modal.querySelector('#traffic-altitude-label-input').checked = !!defaults.showAltitudeLabel;
+        modal.querySelector(`#traffic-label-style-${defaults.labelStyle}`).checked = true;
         modal.querySelector('#traffic-drone-advisories-input').checked = !!defaults.showDroneAdvisories;
         modal.querySelector('#traffic-only-tracked-input').checked = !!defaults.onlyTrackedIdentifiers;
         modal.querySelector('#traffic-only-light-types-input').checked = !!defaults.onlyNonAirplaneHelicopterTraffic;
@@ -25006,6 +25028,7 @@ function ensureTrafficSettingsModal() {
         const relativeBandInput = modal.querySelector('#traffic-relative-band-input');
         const groundBandInput = modal.querySelector('#traffic-ground-band-input');
         const altitudeLabelInput = modal.querySelector('#traffic-altitude-label-input');
+        const labelStyleInput = modal.querySelector('input[name="traffic-label-style"]:checked');
         const droneAdvisoriesInput = modal.querySelector('#traffic-drone-advisories-input');
         const onlyTrackedInput = modal.querySelector('#traffic-only-tracked-input');
         const onlyLightTypesInput = modal.querySelector('#traffic-only-light-types-input');
@@ -25023,6 +25046,7 @@ function ensureTrafficSettingsModal() {
             relativeAltitudeBandFt: relativeBandInput.value,
             groundToAboveBandFt: groundBandInput.value,
             showAltitudeLabel: !!altitudeLabelInput.checked,
+            labelStyle: labelStyleInput?.value === 'alt' ? 'alt' : 'alt-immat',
             showDroneAdvisories: !!droneAdvisoriesInput.checked,
             onlyTrackedIdentifiers: !!onlyTrackedInput.checked,
             onlyNonAirplaneHelicopterTraffic: !!onlyLightTypesInput.checked
@@ -25035,6 +25059,14 @@ function ensureTrafficSettingsModal() {
 
         if (showTrafficLayer) {
             refreshTrafficLayer({ force: true, reason });
+        }
+        /* v1.21 RUN — le style d'étiquette s'applique aussi tout de suite aux Moyens Nationaux. */
+        if (
+            typeof renderGlobalLinkPositions === 'function'
+            && Array.isArray(npfGlobalLinkLastPositions)
+            && npfGlobalLinkLastPositions.length
+        ) {
+            renderGlobalLinkPositions(npfGlobalLinkLastPositions);
         }
         scheduleBaseMapStabilityRefresh(reason);
     };
@@ -25156,6 +25188,7 @@ function openTrafficSettingsDialog() {
     modal.querySelector('#traffic-relative-band-input').value = String(current.relativeAltitudeBandFt);
     modal.querySelector('#traffic-ground-band-input').value = String(current.groundToAboveBandFt);
     modal.querySelector('#traffic-altitude-label-input').checked = !!current.showAltitudeLabel;
+    modal.querySelector(`#traffic-label-style-${current.labelStyle}`).checked = true;
     modal.querySelector('#traffic-drone-advisories-input').checked = !!current.showDroneAdvisories;
     modal.querySelector('#traffic-only-tracked-input').checked = !!current.onlyTrackedIdentifiers;
     modal.querySelector('#traffic-only-light-types-input').checked = !!current.onlyNonAirplaneHelicopterTraffic;
@@ -28962,7 +28995,9 @@ function buildTrafficMarkerIcon(aircraft) {
         : ((aircraft.altitude && aircraft.altitude !== '--') ? aircraft.altitude : '');
     const verticalTrend = getTrafficVerticalTrend(aircraft);
 
-    const firstLineParts = [
+    /* v1.21 RUN — « Étiquettes Trafics Alt. » : ni immatriculation ni type, altitude + tendance seules. */
+    const labelAltOnly = settings.labelStyle === 'alt';
+    const firstLineParts = labelAltOnly ? [] : [
         permanentIdentifier,
         permanentType
     ].filter(Boolean);
@@ -28976,7 +29011,7 @@ function buildTrafficMarkerIcon(aircraft) {
         settings.showAltitudeLabel
         && (firstLineParts.length || secondLineParts.length)
     ) ? `
-        <span class="traffic-aircraft-altitude-label ${labelAnchorClass}"
+        <span class="traffic-aircraft-altitude-label ${labelAnchorClass}${labelAltOnly ? ' traffic-label-alt-seule' : ''}"
               style="--traffic-alt-left:${altitudeLabelLeft.toFixed(1)}px;--traffic-alt-top:${altitudeLabelTop.toFixed(1)}px;">
             ${firstLineParts.length ? `
                 <span class="traffic-label-line traffic-label-line-primary">
@@ -34501,6 +34536,46 @@ function formatGlobalLinkAltitudeFeet(rawAltitude) {
     return formatNpfAltitudeFeetLabel(roundedFeet);
 }
 
+/*
+ * v1.21 RUN — « Étiquettes Trafics Alt. » : altitude + flèche de tendance seules.
+ * La tendance est déduite de l'altitude précédente reçue pour le même appareil,
+ * uniquement à l'arrivée de nouvelles positions (pas aux simples redessins).
+ */
+const npfGlobalLinkAltitudeTrends = new Map();
+
+function getGlobalLinkTrendKey(item) {
+    return String(item?.groupId || item?.missionId || String(item?.name || 'Appareil').trim());
+}
+
+function noteGlobalLinkAltitudeTrends(positions) {
+    (Array.isArray(positions) ? positions : []).forEach(item => {
+        const feet = getGlobalLinkAltitudeFeet(item?.altitude);
+        if (!Number.isFinite(feet)) return;
+        const key = getGlobalLinkTrendKey(item);
+        const previous = npfGlobalLinkAltitudeTrends.get(key);
+        let trend = previous ? previous.trend : 'level';
+        if (previous && feet !== previous.feet) {
+            trend = feet > previous.feet ? 'climb' : 'descent';
+        }
+        npfGlobalLinkAltitudeTrends.set(key, { feet, trend });
+    });
+}
+
+function getGlobalLinkTrendHtml(item) {
+    const trend = npfGlobalLinkAltitudeTrends.get(getGlobalLinkTrendKey(item))?.trend;
+    if (trend === 'climb') return '<span class="traffic-vertical-trend traffic-trend-climb" aria-label="Montée">↗︎</span>';
+    if (trend === 'descent') return '<span class="traffic-vertical-trend traffic-trend-descent" aria-label="Descente">↘︎</span>';
+    return '';
+}
+
+function isGlobalLinkLabelAltOnly() {
+    try {
+        return sanitizeTrafficSettings(trafficSettings).labelStyle === 'alt';
+    } catch (_) {
+        return false;
+    }
+}
+
 function buildGlobalLinkLabelLayout(items) {
     const placements = new Map();
     if (!map?.latLngToContainerPoint || !map?.getSize) return placements;
@@ -34526,15 +34601,19 @@ function buildGlobalLinkLabelLayout(items) {
         top: y - height / 2, bottom: y + height / 2
     });
 
+    const altOnly = isGlobalLinkLabelAltOnly();
     items.forEach((item, index) => {
         const p = map.latLngToContainerPoint([item.lat, item.lon]);
+        if (altOnly && !formatGlobalLinkAltitudeFeet(item.altitude)) return;
         const altitudeLabel = formatGlobalLinkAltitudeFeet(item.altitude);
         const longestLabelLength = Math.max(
             String(item.name || '').length,
             altitudeLabel.length
         );
-        const width = Math.max(68, Math.min(178, 20 + longestLabelLength * 8.4));
-        const height = altitudeLabel ? 42 : 25;
+        const width = altOnly
+            ? Math.max(40, Math.min(110, 22 + altitudeLabel.length * 6))
+            : Math.max(68, Math.min(178, 20 + longestLabelLength * 8.4));
+        const height = altOnly ? 20 : (altitudeLabel ? 42 : 25);
         const hGap = 27 + width / 2;
         const vGap = 27 + height / 2;
         const shifts = [0, -30, 30, -60, 60, -90, 90, -120, 120];
@@ -34784,9 +34863,12 @@ function renderGlobalLinkPositions(positions) {
             const safeAltitudeLabel = altitudeLabel
                 ? escapeGlobalLinkHtml(altitudeLabel)
                 : '';
+            const labelHtml = isGlobalLinkLabelAltOnly()
+                ? `<div class="global-link-aircraft-label glr-label-alt-seule${item.stale ? ' stale' : ''}"><span class="glr-label-altitude">${safeAltitudeLabel}</span>${getGlobalLinkTrendHtml(item)}</div>`
+                : `<div class="global-link-aircraft-label${item.stale ? ' stale' : ''}${safeAltitudeLabel ? ' glr-with-altitude' : ''}"><span class="glr-label-name">${safeName}</span>${safeAltitudeLabel ? `<span class="glr-label-altitude">${safeAltitudeLabel}</span>` : ''}</div>`;
             const labelIcon = L.divIcon({
                 className: 'global-link-aircraft-label-marker',
-                html: `<div class="global-link-aircraft-label${item.stale ? ' stale' : ''}${safeAltitudeLabel ? ' glr-with-altitude' : ''}"><span class="glr-label-name">${safeName}</span>${safeAltitudeLabel ? `<span class="glr-label-altitude">${safeAltitudeLabel}</span>` : ''}</div>`,
+                html: labelHtml,
                 iconSize: [placement.width, placement.height],
                 iconAnchor: [placement.width / 2, placement.height / 2]
             });
@@ -34900,6 +34982,7 @@ async function refreshGlobalLinkPositions(options = {}) {
         npfGlobalLinkNasConfirmedAt = Date.now();
         npfGlobalLinkConsecutiveFailures = 0;
         npfGlobalLinkSeriesDiagnosticMessage = '';
+        noteGlobalLinkAltitudeTrends(payload.positions || []);
         renderGlobalLinkPositions(payload.positions || []);
         return true;
     } catch (error) {

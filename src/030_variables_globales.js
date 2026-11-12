@@ -1318,6 +1318,11 @@ const DEFAULT_TRAFFIC_SETTINGS = Object.freeze({
     minAltitudeFt: 0,
     maxAltitudeFt: null,
     showAltitudeLabel: false,
+    /*
+     * v1.21 RUN — style des étiquettes trafics (SafeSky + Moyens Nationaux) :
+     * 'alt-immat' = étiquette historique inchangée ; 'alt' = altitude + tendance seules.
+     */
+    labelStyle: 'alt-immat',
     altitudeFilterMode: 'absolute',
     relativeAltitudeEnabled: false,
     relativeAltitudeBandFt: 1500,

@@ -1,4 +1,4 @@
-/* NPF_STYLE_BUILD_VERSION: v1.20 */
+/* NPF_STYLE_BUILD_VERSION: v1.21 */
 /* v14.83 — nettoyage des références techniques et limitation des cartouches routiers. */
 /* v14.81 — recherche phonétique nationale élargie aux fragments sur deux lettres. */
 /* v14.80 — Brive conservé uniquement sous LFSL. */
@@ -19111,3 +19111,39 @@ body.npf-calculator-modal-open {
 .carnet-vol-reglage-ligne { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .carnet-vol-cle-input { flex: 1 1 200px; min-width: 160px; height: 40px; border: 1px solid #c8d3e0; border-radius: 9px; padding: 0 10px; font-size: 16px; box-sizing: border-box; }
 .carnet-vol-cle-etat { display: block; min-height: 18px; }
+
+/* v1.21 RUN — « Étiquettes Trafics Alt. » : altitude + tendance seules, étiquette plus petite
+   (SafeSky et Trafic Moyens Nationaux). Le style « Alt. + Immat. » reste inchangé. */
+.traffic-aircraft-altitude-label.traffic-label-alt-seule {
+    width: max-content !important;
+    min-width: 0 !important;
+    padding: 1px 4px !important;
+    border-radius: 5px !important;
+}
+.traffic-aircraft-altitude-label.traffic-label-alt-seule .traffic-label-line-secondary .traffic-label-altitude-value {
+    font-size: 10.5px !important;
+    line-height: 12px !important;
+}
+.traffic-aircraft-altitude-label.traffic-label-alt-seule .traffic-label-line-secondary {
+    gap: 4px !important;
+    min-height: 12px !important;
+    line-height: 12px !important;
+}
+.traffic-aircraft-altitude-label.traffic-label-alt-seule .traffic-vertical-trend,
+.global-link-aircraft-label.glr-label-alt-seule .traffic-vertical-trend {
+    flex: 0 0 14px !important;
+    width: 14px !important;
+    min-width: 14px !important;
+    height: 11px !important;
+    font-size: 14px !important;
+    line-height: 10px !important;
+}
+.global-link-aircraft-label-marker .global-link-aircraft-label.glr-label-alt-seule {
+    flex-direction: row !important;
+    gap: 3px !important;
+    padding: 1px 4px !important;
+    border-radius: 4px !important;
+}
+.global-link-aircraft-label.glr-label-alt-seule .glr-label-altitude {
+    font-size: 10.5px !important;
+}
