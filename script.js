@@ -1,4 +1,4 @@
-const NPF_SCRIPT_BUILD_VERSION = 'v1.21';
+const NPF_SCRIPT_BUILD_VERSION = 'v1.22';
 
 
 /*
@@ -24835,8 +24835,8 @@ function ensureTrafficSettingsModal() {
 
                 <label class="traffic-settings-field traffic-settings-checkbox-field">
                     <div class="traffic-settings-check-row">
-                        <input id="traffic-show-ground-input" type="checkbox">
-                        <em>Afficher les trafics au sol</em>
+                        <input id="traffic-label-style-alt" type="checkbox" class="traffic-label-style-input" value="alt">
+                        <em>Etiquettes Trafics Alt.</em>
                     </div>
                 </label>
 
@@ -24849,8 +24849,8 @@ function ensureTrafficSettingsModal() {
 
                 <label class="traffic-settings-field traffic-settings-checkbox-field">
                     <div class="traffic-settings-check-row">
-                        <input id="traffic-label-style-alt" type="checkbox" class="traffic-label-style-input" value="alt">
-                        <em>Etiquettes Trafics Alt.</em>
+                        <input id="traffic-show-ground-input" type="checkbox">
+                        <em>Afficher les trafics au sol</em>
                     </div>
                 </label>
 
