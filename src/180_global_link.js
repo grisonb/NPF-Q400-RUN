@@ -1125,17 +1125,23 @@ function getGlobalLinkTrendHtml(item) {
     return '';
 }
 
-function isGlobalLinkLabelAltOnly() {
+function getGlobalLinkLabelStyle() {
     try {
-        return sanitizeTrafficSettings(trafficSettings).labelStyle === 'alt';
+        return sanitizeTrafficSettings(trafficSettings).labelStyle;
     } catch (_) {
-        return false;
+        return 'alt-immat';
     }
+}
+
+function isGlobalLinkLabelAltOnly() {
+    return getGlobalLinkLabelStyle() === 'alt';
 }
 
 function buildGlobalLinkLabelLayout(items) {
     const placements = new Map();
     if (!map?.latLngToContainerPoint || !map?.getSize) return placements;
+    /* v1.21 RUN — aucune case d'étiquette cochée : aucune étiquette Moyens Nationaux. */
+    if (getGlobalLinkLabelStyle() === 'none') return placements;
     const size = map.getSize();
     const edge = 8;
     const occupiedLabels = [];

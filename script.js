@@ -7210,10 +7210,11 @@ const DEFAULT_TRAFFIC_SETTINGS = Object.freeze({
     radiusNm: TRAFFIC_RADIUS_NM,
     minAltitudeFt: 0,
     maxAltitudeFt: null,
-    showAltitudeLabel: false,
+    showAltitudeLabel: true,
     /*
-     * v1.21 RUN — style des étiquettes trafics (SafeSky + Moyens Nationaux) :
-     * 'alt-immat' = étiquette historique inchangée ; 'alt' = altitude + tendance seules.
+     * v1.21 RUN — étiquettes trafics (SafeSky + Moyens Nationaux) : 'alt-immat' = étiquette
+     * historique inchangée ; 'alt' = altitude + tendance seules ; 'none' = aucune étiquette.
+     * showAltitudeLabel (ancienne case) est déduit de labelStyle.
      */
     labelStyle: 'alt-immat',
     altitudeFilterMode: 'absolute',
@@ -23567,8 +23568,14 @@ function sanitizeTrafficSettings(candidate = {}) {
         maxAltitudeFt = minAltitudeFt;
     }
 
-    const showAltitudeLabel = asBool(candidate.showAltitudeLabel, fallback.showAltitudeLabel);
-    const labelStyle = candidate.labelStyle === 'alt' ? 'alt' : 'alt-immat';
+    /*
+     * v1.21 RUN — reprise de l'ancien réglage : sans labelStyle enregistré, l'ancienne case
+     * « Etiquette Alt. Trafics » cochée donne « Alt. + Immat. », décochée donne « aucune ».
+     */
+    const labelStyle = ['alt-immat', 'alt', 'none'].includes(candidate.labelStyle)
+        ? candidate.labelStyle
+        : (asBool(candidate.showAltitudeLabel, false) ? 'alt-immat' : 'none');
+    const showAltitudeLabel = labelStyle !== 'none';
 
     const validAltitudeModes = new Set(['absolute', 'around', 'ground']);
     let altitudeFilterMode = String(candidate.altitudeFilterMode || '').toLowerCase();
@@ -24763,6 +24770,12 @@ function getTrafficSettingsSummary() {
     return `Rayon ${settings.radiusNm} Nm · ${altitudeFilterLabel} · ${altitudeLabel} · ${referenceLabel} · ${groundLabel} · ${trackedLabel} · ${typeFilterLabel} · ${advisoryLabel}`;
 }
 
+function setTrafficLabelStyleInputs(modal, labelStyle) {
+    modal.querySelectorAll('.traffic-label-style-input').forEach(input => {
+        input.checked = input.value === labelStyle;
+    });
+}
+
 function ensureTrafficSettingsModal() {
     let modal = document.getElementById('traffic-settings-modal');
     if (modal) return modal;
@@ -24829,22 +24842,15 @@ function ensureTrafficSettingsModal() {
 
                 <label class="traffic-settings-field traffic-settings-checkbox-field">
                     <div class="traffic-settings-check-row">
-                        <input id="traffic-altitude-label-input" type="checkbox">
-                        <em>Etiquette Alt. Trafics</em>
+                        <input id="traffic-label-style-alt-immat" type="checkbox" class="traffic-label-style-input" value="alt-immat">
+                        <em>Etiquettes Trafics Alt. + Immat.</em>
                     </div>
                 </label>
 
                 <label class="traffic-settings-field traffic-settings-checkbox-field">
                     <div class="traffic-settings-check-row">
-                        <input id="traffic-label-style-alt-immat" type="radio" name="traffic-label-style" value="alt-immat">
-                        <em>Étiquettes Trafics Alt. + Immat.</em>
-                    </div>
-                </label>
-
-                <label class="traffic-settings-field traffic-settings-checkbox-field">
-                    <div class="traffic-settings-check-row">
-                        <input id="traffic-label-style-alt" type="radio" name="traffic-label-style" value="alt">
-                        <em>Étiquettes Trafics Alt.</em>
+                        <input id="traffic-label-style-alt" type="checkbox" class="traffic-label-style-input" value="alt">
+                        <em>Etiquettes Trafics Alt.</em>
                     </div>
                 </label>
 
@@ -25011,8 +25017,7 @@ function ensureTrafficSettingsModal() {
         modal.querySelector(`#traffic-altitude-mode-${defaults.altitudeFilterMode}`).checked = true;
         modal.querySelector('#traffic-relative-band-input').value = String(defaults.relativeAltitudeBandFt);
         modal.querySelector('#traffic-ground-band-input').value = String(defaults.groundToAboveBandFt);
-        modal.querySelector('#traffic-altitude-label-input').checked = !!defaults.showAltitudeLabel;
-        modal.querySelector(`#traffic-label-style-${defaults.labelStyle}`).checked = true;
+        setTrafficLabelStyleInputs(modal, defaults.labelStyle);
         modal.querySelector('#traffic-drone-advisories-input').checked = !!defaults.showDroneAdvisories;
         modal.querySelector('#traffic-only-tracked-input').checked = !!defaults.onlyTrackedIdentifiers;
         modal.querySelector('#traffic-only-light-types-input').checked = !!defaults.onlyNonAirplaneHelicopterTraffic;
@@ -25027,8 +25032,7 @@ function ensureTrafficSettingsModal() {
         const altitudeModeInput = modal.querySelector('input[name="traffic-altitude-mode"]:checked');
         const relativeBandInput = modal.querySelector('#traffic-relative-band-input');
         const groundBandInput = modal.querySelector('#traffic-ground-band-input');
-        const altitudeLabelInput = modal.querySelector('#traffic-altitude-label-input');
-        const labelStyleInput = modal.querySelector('input[name="traffic-label-style"]:checked');
+        const labelStyleInput = modal.querySelector('.traffic-label-style-input:checked');
         const droneAdvisoriesInput = modal.querySelector('#traffic-drone-advisories-input');
         const onlyTrackedInput = modal.querySelector('#traffic-only-tracked-input');
         const onlyLightTypesInput = modal.querySelector('#traffic-only-light-types-input');
@@ -25045,8 +25049,7 @@ function ensureTrafficSettingsModal() {
             altitudeFilterMode: altitudeModeInput?.value || 'absolute',
             relativeAltitudeBandFt: relativeBandInput.value,
             groundToAboveBandFt: groundBandInput.value,
-            showAltitudeLabel: !!altitudeLabelInput.checked,
-            labelStyle: labelStyleInput?.value === 'alt' ? 'alt' : 'alt-immat',
+            labelStyle: labelStyleInput ? labelStyleInput.value : 'none',
             showDroneAdvisories: !!droneAdvisoriesInput.checked,
             onlyTrackedIdentifiers: !!onlyTrackedInput.checked,
             onlyNonAirplaneHelicopterTraffic: !!onlyLightTypesInput.checked
@@ -25084,6 +25087,16 @@ function ensureTrafficSettingsModal() {
      * la saisie est validée à la fin de l'édition sans lancer une requête réseau
      * à chaque chiffre. Les cases/radios restent immédiates.
      */
+    /* v1.21 RUN — deux cases d'étiquettes : cocher l'une décoche l'autre ; aucune = aucune étiquette. */
+    modal.querySelectorAll('.traffic-label-style-input').forEach(input => {
+        input.addEventListener('change', () => {
+            if (!input.checked) return;
+            modal.querySelectorAll('.traffic-label-style-input').forEach(other => {
+                if (other !== input) other.checked = false;
+            });
+        });
+    });
+
     modal.querySelectorAll(
         '.traffic-settings-grid input:not([name="traffic-altitude-mode"])'
     ).forEach(input => {
@@ -25187,8 +25200,7 @@ function openTrafficSettingsDialog() {
     modal.querySelector(`#traffic-altitude-mode-${current.altitudeFilterMode}`).checked = true;
     modal.querySelector('#traffic-relative-band-input').value = String(current.relativeAltitudeBandFt);
     modal.querySelector('#traffic-ground-band-input').value = String(current.groundToAboveBandFt);
-    modal.querySelector('#traffic-altitude-label-input').checked = !!current.showAltitudeLabel;
-    modal.querySelector(`#traffic-label-style-${current.labelStyle}`).checked = true;
+    setTrafficLabelStyleInputs(modal, current.labelStyle);
     modal.querySelector('#traffic-drone-advisories-input').checked = !!current.showDroneAdvisories;
     modal.querySelector('#traffic-only-tracked-input').checked = !!current.onlyTrackedIdentifiers;
     modal.querySelector('#traffic-only-light-types-input').checked = !!current.onlyNonAirplaneHelicopterTraffic;
@@ -34568,17 +34580,23 @@ function getGlobalLinkTrendHtml(item) {
     return '';
 }
 
-function isGlobalLinkLabelAltOnly() {
+function getGlobalLinkLabelStyle() {
     try {
-        return sanitizeTrafficSettings(trafficSettings).labelStyle === 'alt';
+        return sanitizeTrafficSettings(trafficSettings).labelStyle;
     } catch (_) {
-        return false;
+        return 'alt-immat';
     }
+}
+
+function isGlobalLinkLabelAltOnly() {
+    return getGlobalLinkLabelStyle() === 'alt';
 }
 
 function buildGlobalLinkLabelLayout(items) {
     const placements = new Map();
     if (!map?.latLngToContainerPoint || !map?.getSize) return placements;
+    /* v1.21 RUN — aucune case d'étiquette cochée : aucune étiquette Moyens Nationaux. */
+    if (getGlobalLinkLabelStyle() === 'none') return placements;
     const size = map.getSize();
     const edge = 8;
     const occupiedLabels = [];
